@@ -178,6 +178,9 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
                 .setPositiveButton("Import", (d, w) -> {
                     modalOpen = false;
                     String k = in.getText().toString().trim();
+                    // A private key is EXACTLY 32 bytes — Credentials.create accepts any hex length and would
+                    // silently produce a different (wrong) address, so validate the length/charset first.
+                    if (!k.replaceFirst("^0x", "").matches("[0-9a-fA-F]{64}")) { toast("Key must be 0x + 64 hex chars"); importDialog(); return; }
                     try {
                         wallet.importKey(k);
                         vault.saveKey(wallet.privateKeyHex());
@@ -392,7 +395,20 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         ap.topMargin = dp(8); amt.setLayoutParams(ap);
         box.addView(amt);
         TextView max = Design.pill(this, "MAX", Design.SURFACE2, Design.DIM);
-        max.setOnClickListener(v -> amt.setText(balOf(chosen[0])));
+        max.setOnClickListener(v -> {
+            if (!"ETH".equals(chosen[0])) { amt.setText(balOf(chosen[0])); return; }   // ERC20: gas is paid in ETH
+            toast("Reserving gas…");                                                    // ETH: leave enough for the fee
+            io.execute(() -> {
+                try {
+                    BigInteger wei = wallet.ethBalanceWei(rpc);
+                    BigInteger gp = rpc.gasPrice(); if (gp.signum() <= 0) gp = BigInteger.valueOf(2_000_000_000L);
+                    BigInteger fee = BigInteger.valueOf(21000).multiply(gp.multiply(BigInteger.valueOf(13)).divide(BigInteger.TEN));
+                    BigInteger spend = wei.subtract(fee);
+                    String out = spend.signum() > 0 ? EthWallet.format(spend, 18, 8) : "0";
+                    ui.post(() -> amt.setText(out));
+                } catch (Exception e) { ui.post(() -> amt.setText(balOf("ETH"))); }
+            });
+        });
         LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         mp.topMargin = dp(8); max.setLayoutParams(mp);
         box.addView(max);
@@ -421,13 +437,23 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
                 final EthNet.Token tk = isEth ? null : tokenBySym(sym);
                 final int decimals = isEth ? 18 : tk.decimals;
                 final BigInteger raw = amtDec.movePointRight(decimals).toBigInteger();
+                if (raw.signum() <= 0) { ui.post(() -> toast("Amount is below the token's smallest unit")); return; }
                 final String data = isEth ? null : FunctionEncoder.encode(new Function("transfer",
                         java.util.Arrays.asList(new Address(to), new Uint256(raw)), Collections.emptyList()));
                 final String txTo = isEth ? to : tk.address;
                 final BigInteger value = isEth ? raw : BigInteger.ZERO;
                 BigInteger gasLimit;
-                try { gasLimit = rpc.estimateGas(wallet.address(), txTo, data, value).multiply(BigInteger.valueOf(12)).divide(BigInteger.TEN); }
-                catch (Exception ge) { gasLimit = BigInteger.valueOf(isEth ? 21000 : 90000); }
+                try {
+                    gasLimit = rpc.estimateGas(wallet.address(), txTo, data, value).multiply(BigInteger.valueOf(12)).divide(BigInteger.TEN);
+                } catch (Exception ge) {
+                    // A hard revert (insufficient balance/allowance) means the SEND would also fail — abort with
+                    // the reason instead of broadcasting a doomed, gas-wasting tx. Fall back only on transient RPC.
+                    String m = ge.getMessage() == null ? "" : ge.getMessage().toLowerCase();
+                    if (m.contains("revert") || m.contains("insufficient") || m.contains("exceeds") || m.contains("transfer amount")) {
+                        ui.post(() -> toast("Would fail: " + ge.getMessage())); return;
+                    }
+                    gasLimit = BigInteger.valueOf(isEth ? 21000 : 90000);
+                }
                 BigInteger gp = rpc.gasPrice(); if (gp.signum() <= 0) gp = BigInteger.valueOf(2_000_000_000L);
                 final BigInteger gasLimitF = gasLimit;
                 final BigInteger feeWei = gasLimit.multiply(gp.multiply(BigInteger.valueOf(12)).divide(BigInteger.TEN));
@@ -558,7 +584,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
     private void switchSourceDialog() {
         new AlertDialog.Builder(this).setTitle("Switch wallet source")
                 .setMessage("Re-derive from the node, or import a different key. (This doesn't move funds.)")
-                .setPositiveButton("Pair with node", (d, w) -> { prefs.edit().putString("source", "node").apply(); vault.clear(); wallet.clear(); ethAddr = null; connectNode(); render(); })
+                .setPositiveButton("Pair with node", (d, w) -> { prefs.edit().putString("source", "node").apply(); wallet.clear(); ethAddr = null; connectNode(); render(); })
                 .setNeutralButton("Import key", (d, w) -> { wallet.clear(); ethAddr = null; importDialog(); })
                 .setNegativeButton("Cancel", null)
                 .show();
