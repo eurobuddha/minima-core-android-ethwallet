@@ -402,7 +402,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
                 try {
                     BigInteger wei = wallet.ethBalanceWei(rpc);
                     BigInteger gp = rpc.gasPrice(); if (gp.signum() <= 0) gp = BigInteger.valueOf(2_000_000_000L);
-                    BigInteger fee = BigInteger.valueOf(21000).multiply(gp.multiply(BigInteger.valueOf(13)).divide(BigInteger.TEN));
+                    BigInteger fee = BigInteger.valueOf(21000).multiply(gp.multiply(BigInteger.valueOf(17)).divide(BigInteger.TEN)); // reserve for the High tier
                     BigInteger spend = wei.subtract(fee);
                     String out = spend.signum() > 0 ? EthWallet.format(spend, 18, 8) : "0";
                     ui.post(() -> amt.setText(out));
@@ -455,29 +455,67 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
                     gasLimit = BigInteger.valueOf(isEth ? 21000 : 90000);
                 }
                 BigInteger gp = rpc.gasPrice(); if (gp.signum() <= 0) gp = BigInteger.valueOf(2_000_000_000L);
-                final BigInteger gasLimitF = gasLimit;
-                final BigInteger feeWei = gasLimit.multiply(gp.multiply(BigInteger.valueOf(12)).divide(BigInteger.TEN));
-                ui.post(() -> showConfirm(sym, to, amount, isEth, txTo, data, value, gasLimitF, EthWallet.format(feeWei, 18, 8)));
+                final BigInteger gasLimitF = gasLimit, baseGp = gp;
+                ui.post(() -> showConfirm(sym, to, amount, isEth, txTo, data, value, gasLimitF, baseGp));
             } catch (Exception e) {
                 ui.post(() -> toast("Couldn't prepare: " + e.getMessage()));
             }
         });
     }
 
-    private void showConfirm(String sym, String to, String amount, boolean isEth, String txTo, String data, BigInteger value, BigInteger gasLimit, String feeEth) {
+    // Fee tiers as a percentage of the network base gas price (gwei): slower → faster.
+    private static final String[] FEE_TIERS = {"Low", "Medium", "High"};
+    private static final int[] FEE_MULT = {100, 130, 170};
+
+    private void showConfirm(String sym, String to, String amount, boolean isEth, String txTo, String data, BigInteger value, BigInteger gasLimit, BigInteger baseGp) {
         modalOpen = true;
+        final int[] tier = {1};   // default Medium
         LinearLayout box = colBox();
         box.addView(kvLine("Send", amount + " " + sym));
         box.addView(kvLine("To", shortAddr(to)));
-        box.addView(kvLine("Est. fee", "~" + feeEth + " ETH"));
+
+        TextView feeLabel = new TextView(this);
+        feeLabel.setText("Network fee"); feeLabel.setTextColor(Design.DIM); feeLabel.setTextSize(12.5f);
+        feeLabel.setPadding(0, dp(8), 0, dp(4));
+        box.addView(feeLabel);
+
+        LinearLayout tierRow = new LinearLayout(this);
+        tierRow.setOrientation(LinearLayout.HORIZONTAL);
+        final TextView[] pills = new TextView[FEE_TIERS.length];
+        final TextView feeVal = new TextView(this);
+        Runnable paint = () -> {
+            for (int i = 0; i < pills.length; i++) {
+                boolean on = i == tier[0];
+                pills[i].setBackground(Design.roundBg(this, on ? Design.ACCENT : Design.SURFACE2, 14));
+                pills[i].setTextColor(on ? Design.ON_ACCENT : Design.DIM);
+            }
+            BigInteger gp = baseGp.multiply(BigInteger.valueOf(FEE_MULT[tier[0]])).divide(BigInteger.valueOf(100));
+            BigInteger feeWei = gasLimit.multiply(gp);
+            feeVal.setText("~" + EthWallet.format(feeWei, 18, 8) + " ETH  ·  " + EthWallet.format(gp, 9, 2) + " gwei");
+        };
+        for (int i = 0; i < FEE_TIERS.length; i++) {
+            final int idx = i;
+            TextView p = Design.pill(this, FEE_TIERS[i], Design.SURFACE2, Design.DIM);
+            p.setOnClickListener(v -> { tier[0] = idx; paint.run(); });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            lp.rightMargin = i < FEE_TIERS.length - 1 ? dp(6) : 0;
+            p.setGravity(Gravity.CENTER); p.setLayoutParams(lp);
+            pills[i] = p; tierRow.addView(p);
+        }
+        box.addView(tierRow);
+        feeVal.setTextColor(Design.TEXT); feeVal.setTextSize(13f); feeVal.setPadding(0, dp(6), 0, 0);
+        box.addView(feeVal);
+        paint.run();
+
         new AlertDialog.Builder(this).setTitle("Confirm send")
                 .setView(wrapScroll(box))
                 .setPositiveButton("Send", (d, w) -> {
                     modalOpen = false;
+                    final BigInteger gasPrice = baseGp.multiply(BigInteger.valueOf(FEE_MULT[tier[0]])).divide(BigInteger.valueOf(100));
                     toast("Broadcasting…");
                     io.execute(() -> {
                         try {
-                            String tx = EthTx.send(rpc, wallet.creds(), net.chainId, txTo, data, isEth ? value : BigInteger.ZERO, gasLimit);
+                            String tx = EthTx.send(rpc, wallet.creds(), net.chainId, txTo, data, isEth ? value : BigInteger.ZERO, gasLimit, gasPrice);
                             ui.post(() -> { sentDialog(tx); refresh(); });
                         } catch (Exception e) {
                             ui.post(() -> toast("Send failed: " + e.getMessage()));

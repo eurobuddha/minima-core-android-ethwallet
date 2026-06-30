@@ -17,12 +17,20 @@ public final class EthTx {
 
     private static final BigInteger FALLBACK_GAS_PRICE = BigInteger.valueOf(2_000_000_000L); // 2 gwei
 
+    /** Auto gas price = eth_gasPrice + 20% headroom (the default tier). */
     public static String send(EthRpc rpc, Credentials creds, long chainId,
                               String to, String data, BigInteger value, BigInteger gasLimit) throws Exception {
-        BigInteger nonce = rpc.getTransactionCount(creds.getAddress());
         BigInteger gasPrice = EthRpc.hexToBig(rpc.callStr("eth_gasPrice", new JSONArray()));
         if (gasPrice.signum() <= 0) gasPrice = FALLBACK_GAS_PRICE;
-        gasPrice = gasPrice.multiply(BigInteger.valueOf(12)).divide(BigInteger.TEN); // +20% headroom
+        gasPrice = gasPrice.multiply(BigInteger.valueOf(12)).divide(BigInteger.TEN);
+        return send(rpc, creds, chainId, to, data, value, gasLimit, gasPrice);
+    }
+
+    /** Explicit gas price — the caller picks the fee tier (low/medium/high). */
+    public static String send(EthRpc rpc, Credentials creds, long chainId,
+                              String to, String data, BigInteger value, BigInteger gasLimit, BigInteger gasPrice) throws Exception {
+        BigInteger nonce = rpc.getTransactionCount(creds.getAddress());
+        if (gasPrice == null || gasPrice.signum() <= 0) gasPrice = FALLBACK_GAS_PRICE;
 
         RawTransaction raw = RawTransaction.createTransaction(
                 nonce, gasPrice, gasLimit, to,
