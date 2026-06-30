@@ -1,0 +1,60 @@
+plugins {
+    alias(libs.plugins.android.application)
+}
+
+android {
+    namespace 'org.minimarex.ethwallet'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "org.minimarex.ethwallet"
+        minSdk 28
+        targetSdk 35
+        versionCode 100
+        versionName "0.1.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Sign release with the debug keystore, matching the rest of the minima-core-android ecosystem.
+            signingConfig signingConfigs.debug
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+    buildFeatures {
+        buildConfig true
+    }
+}
+
+dependencies {
+
+    implementation libs.appcompat
+    implementation libs.material
+    implementation libs.activity
+    implementation libs.constraintlayout
+
+    // Minima Core IPC client SDK — used only to derive the same ETH key as minimaSwap
+    // (`seedrandom modifier:ethbridge`). The wallet also works node-free via private-key import.
+    implementation files('libs/minimaapi.aar')
+
+    // Encrypted, Keystore-backed store for an IMPORTED private key (never plain prefs).
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+
+    // QR: generate the receive address + scan a recipient address.
+    implementation 'com.google.zxing:core:3.5.3'
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
+
+    // Ethereum: key derivation (secp256k1), legacy tx signing (RLP), ABI encode/decode. JSON-RPC is
+    // done over HttpURLConnection, so only the pure-Java web3j modules (no okhttp/core HTTP stack).
+    implementation 'org.web3j:crypto:4.9.8'
+    implementation 'org.web3j:abi:4.9.8'
+    implementation 'org.web3j:rlp:4.9.8'
+    implementation 'org.web3j:utils:4.9.8'
+}

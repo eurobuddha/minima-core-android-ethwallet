@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Minima History — header + sync status, pairing banner, search, then the transaction list.
+     Insets are applied in MainActivity (header clears the status bar, list clears the nav bar). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#0A0A0F">
+
+    <LinearLayout
+        android:id="@+id/header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#15151F"
+        android:paddingStart="18dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="16dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Minima History"
+            android:textColor="#F7931A"
+            android:textStyle="bold"
+            android:textSize="18sp"
+            android:letterSpacing="0.02" />
+
+        <TextView
+            android:id="@+id/syncBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="⟳ Sync"
+            android:textColor="#F7931A"
+            android:textSize="14sp"
+            android:padding="6dp" />
+
+        <TextView
+            android:id="@+id/menuBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="⋮"
+            android:textColor="#9A9AA8"
+            android:textSize="20sp"
+            android:paddingStart="10dp"
+            android:paddingEnd="4dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#15151F"
+        android:paddingStart="18dp"
+        android:paddingEnd="18dp"
+        android:paddingBottom="10dp"
+        android:text="Loading…"
+        android:textColor="#9A9AA8"
+        android:textSize="12sp" />
+
+    <LinearLayout
+        android:id="@+id/pairingBanner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#15151F"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Minima History is not enabled yet"
+            android:textColor="#F7931A"
+            android:textStyle="bold"
+            android:textSize="15sp" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Open Minima Core → Apps and enable &quot;Minima History&quot;, then come back."
+            android:textColor="#9A9AA8"
+            android:textSize="13sp" />
+        <Button
+            android:id="@+id/openNodeBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="Open Minima Core" />
+    </LinearLayout>
+
+    <EditText
+        android:id="@+id/search"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Search address, id, token, amount…"
+        android:textColorHint="#6A6A78"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:maxLines="1"
+        android:inputType="text"
+        android:background="#15151F"
+        android:paddingStart="18dp"
+        android:paddingEnd="18dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recycler"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="8dp" />
+
+</LinearLayout>

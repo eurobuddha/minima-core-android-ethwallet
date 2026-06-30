@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- UTXO wallet palette (mirrors the web MiniDapp dark theme) -->
+    <color name="ux_bg">#FF0A0A0F</color>
+    <color name="ux_card">#FF15151F</color>
+    <color name="ux_card2">#FF1F1F2B</color>
+    <color name="ux_accent">#FFF7931A</color>
+    <color name="ux_text">#FFFFFFFF</color>
+    <color name="ux_subtext">#FF9A9AA8</color>
+    <color name="ux_input">#FF1F1F2B</color>
+    <color name="ux_success">#FF2ECC71</color>
+    <color name="ux_error">#FFE74C3C</color>
+    <color name="ux_pending">#FFE6A23C</color>
+    <color name="ux_banner">#33F7931A</color>
+    <color name="ux_selected">#33F7931A</color>
+    <color name="ux_divider">#FF2A2A38</color>
+</resources>
