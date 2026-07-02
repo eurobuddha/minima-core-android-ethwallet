@@ -31,6 +31,8 @@ import org.minimarex.ethwallet.eth.EthRpc;
 import org.minimarex.ethwallet.eth.EthTx;
 import org.minimarex.ethwallet.eth.EthWallet;
 import org.minimarex.ethwallet.eth.TokenStore;
+import org.minimarex.ethwallet.eth.IconLoader;
+import org.web3j.crypto.Keys;
 import org.web3j.abi.FunctionEncoder;
 import org.web3j.abi.datatypes.Address;
 import org.web3j.abi.datatypes.Function;
@@ -254,14 +256,8 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         addrCard.setOnClickListener(v -> receiveDialog());
         col.addView(addrCard);
 
-        // ETH balance
-        LinearLayout ethCard = card();
-        TextView e1 = new TextView(this); e1.setText("Ethereum"); e1.setTextColor(Design.DIM); e1.setTextSize(12.5f);
-        TextView e2 = new TextView(this); e2.setText(ethBal + " ETH"); e2.setTextColor(Design.ACCENT); e2.setTextSize(20f);
-        e2.setTypeface(e2.getTypeface(), android.graphics.Typeface.BOLD); e2.setPadding(0, dp(3), 0, 0);
-        ethCard.addView(e1); ethCard.addView(e2);
-        ethCard.setOnClickListener(v -> sendDialog("ETH"));
-        col.addView(ethCard);
+        // ETH balance — same big/accent card treatment as the tokens, with the ETH icon
+        col.addView(assetRow("ETH", TW_ETH, "Ethereum", ethBal + " ETH", () -> sendDialog("ETH"), null));
 
         if (ethErr != null) {
             TextView err = new TextView(this); err.setText("⚠ " + ethErr);
@@ -269,18 +265,12 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
             col.addView(err);
         }
 
-        // token rows
+        // token cards — identical styling to the ETH card, each with its currency icon
         for (EthNet.Token tk : tokens.tokens()) {
             String bal = tokenBals.containsKey(tk.symbol) ? tokenBals.get(tk.symbol) : "…";
-            LinearLayout r = card();
-            r.setOrientation(LinearLayout.HORIZONTAL); r.setGravity(Gravity.CENTER_VERTICAL);
-            TextView sym = new TextView(this); sym.setText(tk.symbol); sym.setTextColor(Design.TEXT); sym.setTextSize(15f);
-            TextView amt = new TextView(this); amt.setText(bal); amt.setTextColor(Design.DIM); amt.setTextSize(15f); amt.setGravity(Gravity.END);
-            r.addView(sym, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-            r.addView(amt, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-            r.setOnClickListener(v -> sendDialog(tk.symbol));
-            r.setOnLongClickListener(v -> { tokenMenu(tk); return true; });
-            col.addView(r);
+            final EthNet.Token ftk = tk;
+            col.addView(assetRow(tk.symbol, tokenIconUrl(tk.address), tk.symbol, bal + " " + tk.symbol,
+                    () -> sendDialog(ftk.symbol), () -> tokenMenu(ftk)));
         }
 
         // actions
@@ -647,6 +637,66 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.topMargin = dp(10); c.setLayoutParams(lp);
         return c;
+    }
+
+    // ---- asset rows: ETH + every token, identical big/accent styling, with a currency icon ----
+
+    private static final String TW_ETH   = "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png";
+    private static final String TW_TOKEN = "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/";
+
+    /** Trust Wallet CDN logo URL for an ERC20 by EIP-55 checksummed address (null if it can't be formed). */
+    private String tokenIconUrl(String address) {
+        try { return TW_TOKEN + Keys.toChecksumAddress(address) + "/logo.png"; }
+        catch (Exception e) { return null; }
+    }
+
+    /** A balance card: [icon] title(dim) + big accent value. Used for both ETH and every token. */
+    private LinearLayout assetRow(String symForDisc, String iconUrl, String title, String value,
+                                  Runnable tap, Runnable longPress) {
+        LinearLayout c = card();
+        c.setOrientation(LinearLayout.HORIZONTAL);
+        c.setGravity(Gravity.CENTER_VERTICAL);
+
+        ImageView icon = new ImageView(this);
+        int sz = dp(32);
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(sz, sz);
+        ilp.rightMargin = dp(12);
+        icon.setLayoutParams(ilp);
+        IconLoader.into(this, icon, iconUrl, discBitmap(symForDisc));   // disc now, real logo when it loads
+        c.addView(icon);
+
+        LinearLayout colc = new LinearLayout(this);
+        colc.setOrientation(LinearLayout.VERTICAL);
+        TextView t = new TextView(this); t.setText(title); t.setTextColor(Design.DIM); t.setTextSize(12.5f);
+        TextView v = new TextView(this); v.setText(value); v.setTextColor(Design.ACCENT); v.setTextSize(20f);
+        v.setTypeface(v.getTypeface(), android.graphics.Typeface.BOLD); v.setPadding(0, dp(2), 0, 0);
+        colc.addView(t); colc.addView(v);
+        c.addView(colc, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        if (tap != null) c.setOnClickListener(x -> tap.run());
+        if (longPress != null) c.setOnLongClickListener(x -> { longPress.run(); return true; });
+        return c;
+    }
+
+    /** Deterministic lettered disc shown until (or if) a real icon loads. */
+    private Bitmap discBitmap(String sym) {
+        int sz = dp(32);
+        Bitmap bm = Bitmap.createBitmap(sz, sz, Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas cv = new android.graphics.Canvas(bm);
+        String s = (sym == null || sym.isEmpty()) ? "?" : sym;
+        int hue = Math.abs(s.hashCode()) % 360;
+        android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        p.setColor(android.graphics.Color.HSVToColor(new float[]{hue, 0.45f, 0.65f}));
+        cv.drawCircle(sz / 2f, sz / 2f, sz / 2f, p);
+        String t = s.length() >= 2 ? s.substring(0, 2) : s;
+        p.setColor(0xFFFFFFFF);
+        p.setTextAlign(android.graphics.Paint.Align.CENTER);
+        p.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        p.setTextSize(sz * 0.40f);
+        android.graphics.Rect rb = new android.graphics.Rect();
+        p.getTextBounds(t, 0, t.length(), rb);
+        cv.drawText(t, sz / 2f, sz / 2f - rb.exactCenterY(), p);
+        return bm;
     }
     private void addPill(LinearLayout row, String label, Runnable onClick) {
         TextView p = Design.pill(this, label, Design.SURFACE2, Design.TEXT);
