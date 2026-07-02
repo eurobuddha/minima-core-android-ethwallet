@@ -34,7 +34,8 @@ public final class EthTx {
 
         RawTransaction raw = RawTransaction.createTransaction(
                 nonce, gasPrice, gasLimit, to,
-                value == null ? BigInteger.ZERO : value, data);
+                value == null ? BigInteger.ZERO : value,
+                data == null ? "" : data);   // native ETH transfer has no data — web3j NPEs on a null data hex
         byte[] signed = TransactionEncoder.signMessage(raw, chainId, creds);
         String txHash = rpc.sendRawTransaction(Numeric.toHexString(signed));
         if (txHash == null || !txHash.startsWith("0x")) throw new Exception("send failed: " + txHash);
