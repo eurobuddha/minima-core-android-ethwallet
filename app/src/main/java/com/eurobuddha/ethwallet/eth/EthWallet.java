@@ -1,9 +1,9 @@
-package org.minimarex.ethwallet.eth;
+package com.eurobuddha.ethwallet.eth;
 
 import android.os.Handler;
 
 import org.json.JSONObject;
-import org.minimarex.comms.NodeApi;
+import com.eurobuddha.comms.NodeApi;
 import org.web3j.abi.FunctionEncoder;
 import org.web3j.abi.FunctionReturnDecoder;
 import org.web3j.abi.TypeReference;

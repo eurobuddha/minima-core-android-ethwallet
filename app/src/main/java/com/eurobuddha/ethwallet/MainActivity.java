@@ -1,4 +1,4 @@
-package org.minimarex.ethwallet;
+package com.eurobuddha.ethwallet;
 
 import android.graphics.Bitmap;
 import android.os.Bundle;
@@ -24,14 +24,14 @@ import androidx.core.view.WindowInsetsCompat;
 import com.journeyapps.barcodescanner.ScanContract;
 import com.journeyapps.barcodescanner.ScanOptions;
 
-import org.minimarex.comms.NodeApi;
-import org.minimarex.comms.QrUtil;
-import org.minimarex.ethwallet.eth.EthNet;
-import org.minimarex.ethwallet.eth.EthRpc;
-import org.minimarex.ethwallet.eth.EthTx;
-import org.minimarex.ethwallet.eth.EthWallet;
-import org.minimarex.ethwallet.eth.TokenStore;
-import org.minimarex.ethwallet.eth.IconLoader;
+import com.eurobuddha.comms.NodeApi;
+import com.eurobuddha.comms.QrUtil;
+import com.eurobuddha.ethwallet.eth.EthNet;
+import com.eurobuddha.ethwallet.eth.EthRpc;
+import com.eurobuddha.ethwallet.eth.EthTx;
+import com.eurobuddha.ethwallet.eth.EthWallet;
+import com.eurobuddha.ethwallet.eth.TokenStore;
+import com.eurobuddha.ethwallet.eth.IconLoader;
 import org.web3j.crypto.Keys;
 import org.web3j.abi.FunctionEncoder;
 import org.web3j.abi.datatypes.Address;

@@ -1,4 +1,4 @@
-package org.minimarex.ethwallet.eth;
+package com.eurobuddha.ethwallet.eth;
 
 /**
  * Ethereum network config for the swap — addresses, decimals, default RPC. Mainnet only; the single

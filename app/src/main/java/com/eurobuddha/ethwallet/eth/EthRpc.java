@@ -1,4 +1,4 @@
-package org.minimarex.ethwallet.eth;
+package com.eurobuddha.ethwallet.eth;
 
 import org.json.JSONArray;
 import org.json.JSONException;

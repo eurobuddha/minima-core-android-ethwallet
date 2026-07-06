@@ -1,4 +1,4 @@
-package org.minimarex.ethwallet;
+package com.eurobuddha.ethwallet;
 
 import org.json.JSONObject;
 

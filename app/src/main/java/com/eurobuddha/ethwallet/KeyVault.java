@@ -1,4 +1,4 @@
-package org.minimarex.ethwallet;
+package com.eurobuddha.ethwallet;
 
 import android.content.Context;
 import android.content.SharedPreferences;

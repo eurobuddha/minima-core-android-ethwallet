@@ -1,4 +1,4 @@
-package org.minimarex.ethwallet.eth;
+package com.eurobuddha.ethwallet.eth;
 
 import android.content.Context;
 import android.graphics.Bitmap;

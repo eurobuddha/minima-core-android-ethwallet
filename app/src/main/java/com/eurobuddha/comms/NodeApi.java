@@ -1,4 +1,4 @@
-package org.minimarex.comms;
+package com.eurobuddha.comms;
 
 import android.app.Activity;
 import android.content.Context;
