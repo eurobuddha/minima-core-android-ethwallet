@@ -1,47 +1,47 @@
-# Minima History (native Android)
+# ETH Wallet (native Android)
 
-A **node-only, persistent** transaction-history app for [Minima](https://minima.global). It mirrors the
-local node's `history` into a **permanent local database** and shows it as a searchable list.
+A standalone native Android **Ethereum ERC20 wallet** whose key is **derived from your Minima node's seed** — the
+same Ethereum address the [minimaSwap](https://github.com/eurobuddha/minima-core-android-minimaswap)/AtomiX HTLC
+swaps use — so it needs no separate backup. Mainnet only. Package `com.eurobuddha.ethwallet`.
 
-**Why:** the Minima node **prunes** its own history over time. This app captures it and **keeps it
-forever** — a transaction stays in the local record even after the node drops it. The node forgets; this
-app remembers.
+## Two ways to get the key (chosen on first run)
 
-It is **read-only** (never builds transactions) and **100% explorer-free** — every byte comes from the
-local node over the broadcast-Intent IPC (`minimaapi`). No internet permission.
+1. **Pair with your node** — derive the key via the node command `seedrandom modifier:ethbridge` (the same modifier
+   the upstream bridge/AtomiX use). The PRNG lives inside Minima Core, so the key is re-derived each session and
+   never stored; it needs the node installed, running, write-enabled, and this app enabled in **Minima Core → Apps**.
+2. **Import a key** — paste a `0x` + 64-hex private key (e.g. exported from AtomiX). It's stored **encrypted** in a
+   Keystore-backed `EncryptedSharedPreferences` (AES-256), and the wallet runs node-free.
+
+## Features
+
+- **Assets dashboard** — native ETH balance + every ERC20 in your token list, each on a big card with its currency
+  icon (Trust Wallet CDN by EIP-55 checksummed address, lettered-disc fallback), pull to **Refresh**.
+- **Send** — token picker, recipient with **QR scan** and MAX, a live gas preview, and **Low / Medium / High fee
+  tiers** (×1.0 / 1.3 / 1.7 of the network gas price) with a fee + gwei estimate before you confirm.
+- **Receive** — your address + QR (same address on every EVM network).
+- **Add token** — paste an ERC20 contract address; symbol + decimals are read from the chain (`symbol()`/`decimals()`).
+  Seeded with USDT / USDC / DAI / WETH; remove via long-press.
+- **Settings** — export the private key (two-step warning), override the RPC endpoint, switch key source.
+- **View on Etherscan** — keyless deep links for your address, a token, or a broadcast tx (no Etherscan API key).
 
 ## How it works
 
-- **Sync** = `history relevant:true max:25 offset:N`, paged newest-first into a SQLite DB keyed by
-  `txpowid` (idempotent). It stops at the first already-stored txpow (caught up) or a short page (end of
-  what the node retains); first run pages gently to the end (one-time backfill).
-- **IPC-safe by design:** `history` is the heavy command that can overwhelm an un-hardened node, so sync
-  is bounded (`max:25` ≈190 KB/page), incremental, debounced on `NEWBLOCK`, with a delay between pages —
-  never an unbounded loop.
-- **Direction + amount** come from the node's `details.difference` (net per-token effect): positive →
-  received, negative → sent, zero → self.
-- **The list is served from the local DB** — instant, offline, searchable. The node is touched only to sync.
-
-## Scope
-
-Relevant transactions only (`history relevant:true`): the wallet's default 64 addresses, any new
-addresses, and contract transactions it's involved in. Captures the node's current retained history at
-install + everything forward (history pruned *before* first sync is unrecoverable — node-only, no explorer).
+Ethereum is an embedded **web3j** wallet (crypto/ABI/RLP only; JSON-RPC over `HttpURLConnection` with a keyless
+public-node fallback chain). Transactions are **signed locally** (legacy EIP-155) and broadcast via
+`eth_sendRawTransaction`; the node is only ever used to derive the key (node-paired mode). History is viewed on
+Etherscan rather than indexed in-app.
 
 ## Build
+
 Requires a **JDK 17/21** (the Android Studio JBR works):
 
 ```sh
-JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew assembleDebug
+JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew assembleRelease
 ```
 
-Install, then enable **Minima History** in Minima Core → Apps to authorize the IPC.
+Install, then (node-paired mode only) enable **ETH Wallet** in Minima Core → Apps.
 
 ## Releases
-Versioned APKs + changelog: **[eurobuddha/minima-core-apks](https://github.com/eurobuddha/minima-core-apks)**
-(tags `minima-history-v<version>`).
 
-## Layout
-- `org/minimarex/history/` — `MainActivity` (list + search + detail), `HistoryDb` (persistent txpowid-keyed
-  SQLite), `HistoryEntry` (parser), `HistorySync` (bounded paged sync), `HistoryDesign`; reused `NodeApi`
-  (IPC), `TokenMeta`, `Util`.
+Versioned APKs are published to the [PandaApps catalog](https://github.com/eurobuddha/minima-core-apks)
+(`apks.json`). Current: **v0.2.0**.
