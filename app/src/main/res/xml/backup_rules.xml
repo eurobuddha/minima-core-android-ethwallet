@@ -1,13 +1,12 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   Backup is disabled outright (android:allowBackup="false") — this app custodies an Ethereum
+   private key. These rules are the second line of defence if backup is ever re-enabled.
+
+   ethwallet_secure holds the imported key AND the Tink keysets that protect it. Those keysets are
+   encrypted by a device-bound Keystore master key that is NEVER backed up, so a restored copy can
+   never be decrypted — it only produces AEADBadTagException at launch. Never back this file up.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="sharedpref" path="ethwallet_secure.xml" />
 </full-backup-content>

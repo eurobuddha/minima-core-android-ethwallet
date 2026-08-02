@@ -13,15 +13,18 @@
     <!-- Scan a recipient address QR. -->
     <uses-permission android:name="android.permission.CAMERA" />
 
+    <!-- allowBackup=false: this app custodies an Ethereum private key, and the Tink keysets that
+         protect it are sealed by a device-bound Keystore key that is never backed up — a restored
+         copy is undecryptable and crash-loops the app. See backup_rules.xml. -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Utxo"
+        android:theme="@style/Theme.EthWallet"
         tools:targetApi="31">
         <activity
             android:name=".MainActivity"

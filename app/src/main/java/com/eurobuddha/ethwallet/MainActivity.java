@@ -15,6 +15,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
@@ -57,7 +58,11 @@ import java.util.concurrent.Executors;
 public class MainActivity extends AppCompatActivity implements NodeApi.PairingListener {
 
     private static final String PREFS = "ethwallet";
+    /** Pref holding the address this node derived last time — see {@link #deriveNow}. */
+    private static final String PIN = "derivedAddr";
     private static final String ETHERSCAN = "https://etherscan.io/";
+    /** A well-formed Ethereum address. Checked before ANY value leaves this wallet — see confirmSend. */
+    private static final java.util.regex.Pattern ADDR = java.util.regex.Pattern.compile("^0x[0-9a-fA-F]{40}$");
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -81,6 +86,8 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
 
     private EditText pendingRecipient;          // filled by the QR scanner
     private ActivityResultLauncher<ScanOptions> scanLauncher;
+    private ActivityResultLauncher<android.content.Intent> authLauncher;
+    private Runnable pendingAuthAction;         // run once the device credential is confirmed
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -88,7 +95,9 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         net = EthNet.MAINNET;
         rpc = new EthRpc(prefs.getString("rpc", net.defaultRpc));
         tokens = new TokenStore(prefs);
-        vault = new KeyVault(this);
+        // NB: the KeyVault is NOT built here. Opening the Keystore-backed store can fail (a restored
+        // backup leaves a keyset the device can no longer decrypt), and a node-paired wallet never
+        // touches it — building it eagerly turned that into a crash loop on every launch.
 
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -106,9 +115,23 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
             if (result.getContents() != null && pendingRecipient != null)
                 pendingRecipient.setText(cleanAddr(result.getContents()));
         });
+        authLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), r -> {
+            Runnable action = pendingAuthAction;
+            pendingAuthAction = null;
+            if (action == null) return;
+            if (r.getResultCode() == RESULT_OK) action.run();
+            else toast("Cancelled");
+        });
 
         render();
         startWallet();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        // Re-check enablement after the user returns from Minima Core -> Apps. Without this the
+        // pairing banner tells you to do something that then never takes effect until a restart.
+        if (node != null && !wallet.ready()) retryNode();
     }
 
     @Override protected void onDestroy() {
@@ -117,33 +140,134 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         io.shutdownNow();
     }
 
+    /** True once this Activity is gone — never touch views or show dialogs past this point. */
+    private boolean gone() { return isFinishing() || isDestroyed(); }
+
+    /** Post to the UI thread, dropping the work if the Activity died while the IO task ran. */
+    private void onUi(Runnable r) { ui.post(() -> { if (!gone()) r.run(); }); }
+
+    /** The secure store, opened on first use only. May be unavailable — always check {@link KeyVault#available()}. */
+    private KeyVault vault() {
+        if (vault == null) vault = new KeyVault(this);
+        return vault;
+    }
+
+    /**
+     * Confirm the device credential (PIN/pattern/password/biometric) before a sensitive action.
+     * Devices with no secure lockscreen have nothing to check against, so the action runs directly —
+     * the caller is still responsible for an explicit warning step.
+     */
+    private void authThen(String title, String detail, Runnable action) {
+        android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        android.content.Intent i = (km == null || !km.isDeviceSecure())
+                ? null : km.createConfirmDeviceCredentialIntent(title, detail);
+        if (i == null) { action.run(); return; }
+        pendingAuthAction = action;
+        authLauncher.launch(i);
+    }
+
     // ---- wallet source / startup ----
 
     private void startWallet() {
         String src = prefs.getString("source", null);
         if ("import".equals(src)) {
-            String key = vault.loadKey();
+            KeyVault v = vault();
+            String key = v.available() ? v.loadKey() : null;
             if (key != null) { wallet.importKey(key); ethAddr = wallet.address(); render(); refresh(); return; }
-            // import chosen but no key stored → re-prompt
+            // The stored key is gone — the secure store was reset (restored backup / Keystore change)
+            // or could not be opened at all. Say so plainly instead of silently re-prompting.
+            if (v.wasReset() || !v.available())
+                ethErr = "Secure storage was reset by the device, so the imported key is gone. "
+                       + "Re-import it, or pair with your node.";
+            prefs.edit().remove("source").apply();
         }
         if ("node".equals(src)) { connectNode(); return; }
         sourcePicker();
     }
 
+    /**
+     * Ensure the IPC exists and that we end up with a key. The first call constructs {@link NodeApi},
+     * whose REGISTER reply drives {@link #onEnabled}; later calls have no register to wait for, so they
+     * must derive directly. Missing that second branch left "Switch wallet source -> Pair with node"
+     * a silent no-op that stranded the app on "Setting up wallet…" until it was force-quit.
+     */
     private void connectNode() {
-        if (node == null) node = new NodeApi(this, this);
-        // onEnabled fires from the IPC register; deriveFromNode runs there
+        if (node == null) { node = new NodeApi(this, this); return; }
+        if (paired && !wallet.ready()) deriveNow();
+    }
+
+    /** Ask the node for the key. Doubles as the pairing retry: a successful reply proves we're enabled,
+     *  and NodeApi routes the not-enabled reply back through {@link #onEnabled}. */
+    private void deriveNow() {
+        if (node == null) return;
+        // The address this node derived last time. Null on the very first derivation.
+        final String pinned = prefs.getString(PIN, null);
+        wallet.deriveFromNode(node, ui, pinned, new EthWallet.Cb() {
+            @Override public void ok(String address) {
+                if (gone()) return;
+                paired = true;
+                pairingBanner.setVisibility(View.GONE);
+                prefs.edit().putString(PIN, address).apply();   // pin on first success, re-affirm after
+                ethAddr = address; ethErr = null; render(); refresh();
+            }
+            @Override public void err(String msg) {
+                if (gone()) return;
+                ethErr = NodeApi.ERR_NOT_ENABLED.equals(msg)
+                        ? "Not enabled yet — turn on “ETH Wallet” in Minima Core → Apps, then tap the banner."
+                        : msg;
+                render();
+            }
+            @Override public void addressChanged(String was, String now) {
+                if (gone()) return;
+                addressChangedDialog(was, now);
+            }
+        });
+    }
+
+    /**
+     * The node derived a different address than last time. The key has NOT been adopted. Either the
+     * seed genuinely changed (node reset/restored from a different phrase) — in which case the old
+     * funds are stranded and the user needs to know — or something is impersonating the node.
+     * Blocking and non-cancelable: silently continuing on a new address is the outcome to prevent.
+     */
+    private void addressChangedDialog(String was, String now) {
+        modalOpen = true;
+        LinearLayout box = colBox();
+        TextView warn = new TextView(this);
+        warn.setText("Your node is deriving a DIFFERENT Ethereum address than it did before.");
+        warn.setTextColor(Design.RED); warn.setTextSize(14f); warn.setPadding(0, 0, 0, dp(10));
+        box.addView(warn);
+        box.addView(kvLine("Was", shortAddr(was)));
+        box.addView(kvLine("Now", shortAddr(now)));
+        TextView note = new TextView(this);
+        note.setText("\nAny funds you already hold are at the OLD address — they do not move. "
+                + "This is expected only if you reset or restored your node with a different seed phrase. "
+                + "If you did not, stop and check your node before continuing.");
+        note.setTextColor(Design.DIM); note.setTextSize(12.5f);
+        box.addView(note);
+        new AlertDialog.Builder(this).setTitle("Address changed")
+                .setView(wrapScroll(box))
+                .setCancelable(false)
+                .setNegativeButton("Cancel", (d, w) -> { modalOpen = false; ethErr = "Derivation stopped — the node's address changed."; render(); })
+                .setPositiveButton("I reset my node — use the new address", (d, w) -> {
+                    modalOpen = false;
+                    prefs.edit().remove(PIN).apply();   // drop the pin, then re-derive unpinned and re-pin
+                    deriveNow();
+                })
+                .show();
+    }
+
+    /** Re-attempt the node handshake (app resumed, or the pairing banner was tapped). */
+    private void retryNode() {
+        if (node == null) { connectNode(); return; }
+        if (!wallet.ready()) deriveNow();
     }
 
     @Override public void onEnabled(boolean enabled) {
+        if (gone()) return;
         paired = enabled;
         pairingBanner.setVisibility(enabled ? View.GONE : View.VISIBLE);
-        if (enabled && !wallet.ready()) {
-            wallet.deriveFromNode(node, ui, new EthWallet.Cb() {
-                @Override public void ok(String address) { ethAddr = address; ethErr = null; render(); refresh(); }
-                @Override public void err(String msg) { ethErr = msg; render(); }
-            });
-        }
+        if (enabled && !wallet.ready()) deriveNow();
         render();
     }
 
@@ -158,7 +282,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
                 .setTitle("Set up wallet")
                 .setView(wrapScroll(box))
                 .setCancelable(false)
-                .setPositiveButton("Pair with node", (d, w) -> { prefs.edit().putString("source", "node").apply(); modalOpen = false; connectNode(); render(); })
+                .setPositiveButton("Pair with node", (d, w) -> { prefs.edit().putString("source", "node").apply(); modalOpen = false; retryNode(); render(); })
                 .setNeutralButton("Import key", (d, w) -> { modalOpen = false; importDialog(); })
                 .show();
     }
@@ -185,10 +309,15 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
                     if (!k.replaceFirst("^0x", "").matches("[0-9a-fA-F]{64}")) { toast("Key must be 0x + 64 hex chars"); importDialog(); return; }
                     try {
                         wallet.importKey(k);
-                        vault.saveKey(wallet.privateKeyHex());
-                        prefs.edit().putString("source", "import").apply();
+                        // Only remember "import" as the source if the key actually reached the secure
+                        // store — otherwise the next launch would look for a key that isn't there.
+                        if (vault().saveKey(wallet.privateKeyHex())) {
+                            prefs.edit().putString("source", "import").apply();
+                            toast("Imported " + shortAddr(wallet.address()));
+                        } else {
+                            toast("Secure storage unavailable — key active for this session only");
+                        }
                         ethAddr = wallet.address(); ethErr = null;
-                        toast("Imported " + shortAddr(ethAddr));
                         render(); refresh();
                     } catch (Exception e) { toast("Invalid key"); sourcePicker(); }
                 })
@@ -210,9 +339,9 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
                     try { bals.put(tk.symbol, EthWallet.format(wallet.erc20BalanceRaw(rpc, tk.address), tk.decimals, 6)); }
                     catch (Exception e) { bals.put(tk.symbol, "—"); }
                 }
-                ui.post(() -> { ethBal = eth; tokenBals.clear(); tokenBals.putAll(bals); ethErr = null; lastUpdate = System.currentTimeMillis(); render(); });
+                onUi(() -> { ethBal = eth; tokenBals.clear(); tokenBals.putAll(bals); ethErr = null; lastUpdate = System.currentTimeMillis(); render(); });
             } catch (Exception e) {
-                ui.post(() -> { ethErr = "RPC: " + e.getMessage(); render(); });
+                onUi(() -> { ethErr = "RPC: " + e.getMessage(); render(); });
             }
         });
     }
@@ -284,7 +413,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         LinearLayout actions2 = new LinearLayout(this);
         actions2.setOrientation(LinearLayout.HORIZONTAL); actions2.setPadding(0, dp(8), 0, 0);
         addPill(actions2, "+  Add token", this::addTokenDialog);
-        addPill(actions2, "↗  Etherscan", () -> openUrl(ETHERSCAN + "address/" + ethAddr));
+        addPill(actions2, "↗  Etherscan", this::viewAddressOnEtherscan);
         addPill(actions2, "⚙  Settings", this::settingsDialog);
         col.addView(actions2);
 
@@ -324,9 +453,30 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
                 .show();
     }
 
+    /**
+     * Two-step export: an explicit blocking warning, THEN a device-credential confirmation, and only
+     * then the key. Previously Settings -> "Export private key" showed the key immediately, so two taps
+     * on an unlocked phone exported a mainnet key (and the README claimed a warning that did not exist).
+     */
+    private void exportKeyFlow() {
+        if (wallet.privateKeyHex() == null) { toast("No key yet"); return; }
+        modalOpen = true;
+        new AlertDialog.Builder(this)
+                .setTitle("Export private key")
+                .setMessage("Anyone who sees this key can take these funds, permanently and irreversibly. "
+                        + "Only continue if you are alone and know exactly why you need it.")
+                .setPositiveButton("I understand — show it", (d, w) -> {
+                    modalOpen = false;
+                    authThen("Export private key", "Confirm it's you before the key is shown", this::revealKeyDialog);
+                })
+                .setNegativeButton("Cancel", null)
+                .setOnDismissListener(d -> modalOpen = false)
+                .show();
+    }
+
     private void revealKeyDialog() {
         String k = wallet.privateKeyHex();
-        if (k == null) return;
+        if (k == null || gone()) return;
         modalOpen = true;
         LinearLayout box = colBox();
         TextView warn = new TextView(this);
@@ -337,12 +487,18 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         key.setText(k); key.setTextColor(Design.TEXT); key.setTextSize(13f); key.setTextIsSelectable(true);
         key.setTypeface(android.graphics.Typeface.MONOSPACE);
         box.addView(key);
-        new AlertDialog.Builder(this).setTitle("Private key")
+        AlertDialog dlg = new AlertDialog.Builder(this).setTitle("Private key")
                 .setView(wrapScroll(box))
-                .setPositiveButton("Copy", (d, w) -> { copy(k); toast("Key copied"); })
+                .setPositiveButton("Copy", (d, w) -> { copy(k, true); toast("Key copied — clipboard clears in 60s"); })
                 .setNegativeButton("Close", null)
                 .setOnDismissListener(d -> modalOpen = false)
-                .show();
+                .create();
+        // Keep the key out of screenshots, screen recordings and the recents thumbnail.
+        if (dlg.getWindow() != null) {
+            dlg.getWindow().setFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE,
+                    android.view.WindowManager.LayoutParams.FLAG_SECURE);
+        }
+        dlg.show();
     }
 
     // ---- send ----
@@ -395,8 +551,8 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
                     BigInteger fee = BigInteger.valueOf(21000).multiply(gp.multiply(BigInteger.valueOf(17)).divide(BigInteger.TEN)); // reserve for the High tier
                     BigInteger spend = wei.subtract(fee);
                     String out = spend.signum() > 0 ? EthWallet.format(spend, 18, 8) : "0";
-                    ui.post(() -> amt.setText(out));
-                } catch (Exception e) { ui.post(() -> amt.setText(balOf("ETH"))); }
+                    onUi(() -> amt.setText(out));
+                } catch (Exception e) { onUi(() -> amt.setText(balOf("ETH"))); }
             });
         });
         LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -415,9 +571,24 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
     }
 
     private void confirmSend(String sym, String to, String amount) {
-        if (!to.startsWith("0x") || to.length() != 42) { toast("Bad recipient address"); return; }
+        // MUST be a strict hex check, not just prefix+length. web3j's RLP encoder maps invalid hex
+        // characters to -1 without throwing, so "0x" + 40 junk chars silently becomes a VALID signed
+        // transaction to a mangled address — funds gone, unrecoverable. The ERC20 path happens to be
+        // caught by new Address(), the native ETH path was not.
+        if (!ADDR.matcher(to).matches()) { toast("Bad recipient address"); return; }
+        // EIP-55: a mixed-case address carries a checksum, so a typo is detectable. All-lower and
+        // all-upper are legacy un-checksummed forms and stay allowed.
+        if (!to.equals(to.toLowerCase()) && !to.equals(to.toUpperCase())) {
+            String sum;
+            try { sum = Keys.toChecksumAddress(to); } catch (Exception e) { sum = null; }
+            if (sum != null && !sum.equals(to)) { toast("Address checksum failed — check for a typo"); return; }
+        }
+        if (to.equalsIgnoreCase(wallet.address())) { toast("That's your own address"); return; }
         final BigDecimal amtDec;
-        try { amtDec = new BigDecimal(amount); if (amtDec.signum() <= 0) throw new Exception(); }
+        // The decimal keypad emits the LOCALE's separator — a comma across most of Europe, which
+        // BigDecimal rejects. Normalise before parsing so decimals are enterable everywhere.
+        final String normalised = amount.replace(',', '.').trim();
+        try { amtDec = new BigDecimal(normalised); if (amtDec.signum() <= 0) throw new Exception(); }
         catch (Exception e) { toast("Bad amount"); return; }
 
         toast("Estimating fee…");
@@ -425,9 +596,10 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
             try {
                 final boolean isEth = "ETH".equals(sym);
                 final EthNet.Token tk = isEth ? null : tokenBySym(sym);
+                if (!isEth && tk == null) { onUi(() -> toast("Token " + sym + " is no longer in your list")); return; }
                 final int decimals = isEth ? 18 : tk.decimals;
                 final BigInteger raw = amtDec.movePointRight(decimals).toBigInteger();
-                if (raw.signum() <= 0) { ui.post(() -> toast("Amount is below the token's smallest unit")); return; }
+                if (raw.signum() <= 0) { onUi(() -> toast("Amount is below the token's smallest unit")); return; }
                 final String data = isEth ? null : FunctionEncoder.encode(new Function("transfer",
                         java.util.Arrays.asList(new Address(to), new Uint256(raw)), Collections.emptyList()));
                 final String txTo = isEth ? to : tk.address;
@@ -436,19 +608,37 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
                 try {
                     gasLimit = rpc.estimateGas(wallet.address(), txTo, data, value).multiply(BigInteger.valueOf(12)).divide(BigInteger.TEN);
                 } catch (Exception ge) {
-                    // A hard revert (insufficient balance/allowance) means the SEND would also fail — abort with
-                    // the reason instead of broadcasting a doomed, gas-wasting tx. Fall back only on transient RPC.
+                    // FAIL CLOSED. Only a pure transport failure justifies guessing a gas limit; anything
+                    // the node actually evaluated and rejected means the send would fail too, so aborting
+                    // beats broadcasting a doomed, gas-burning transaction.
                     String m = ge.getMessage() == null ? "" : ge.getMessage().toLowerCase();
-                    if (m.contains("revert") || m.contains("insufficient") || m.contains("exceeds") || m.contains("transfer amount")) {
-                        ui.post(() -> toast("Would fail: " + ge.getMessage())); return;
-                    }
+                    boolean rejected = m.contains("revert") || m.contains("insufficient") || m.contains("exceeds")
+                            || m.contains("transfer amount") || m.contains("invalid") || m.contains("param")
+                            || m.contains("gas required");
+                    boolean transport = !rejected && (m.contains("timeout") || m.contains("timed out")
+                            || m.contains("connect") || m.contains("resolve") || m.contains("non-json"));
+                    if (!transport) { onUi(() -> toast("Won't send: " + ge.getMessage())); return; }
                     gasLimit = BigInteger.valueOf(isEth ? 21000 : 90000);
                 }
                 BigInteger gp = rpc.gasPrice(); if (gp.signum() <= 0) gp = BigInteger.valueOf(2_000_000_000L);
+                // Bail out here with a readable message rather than letting EthTx throw after the
+                // user has already tapped Send. Checked against the top fee tier, since that's the
+                // highest the user could select from the confirm screen.
+                final BigInteger topGp = gp.multiply(BigInteger.valueOf(FEE_MULT[FEE_MULT.length - 1])).divide(BigInteger.valueOf(100));
+                if (topGp.compareTo(EthTx.MAX_GAS_PRICE) > 0) {
+                    final String g = EthTx.gwei(gp);
+                    onUi(() -> toast("Won't send: " + rpcHost() + " reports a gas price of " + g
+                            + " gwei, far above normal. Check the RPC endpoint in Settings.")); return;
+                }
+                if (gasLimit.compareTo(EthTx.MAX_GAS_LIMIT) > 0) {
+                    final BigInteger gl = gasLimit;
+                    onUi(() -> toast("Won't send: " + rpcHost() + " estimated " + gl
+                            + " gas for this transfer, far above normal. Check the RPC endpoint in Settings.")); return;
+                }
                 final BigInteger gasLimitF = gasLimit, baseGp = gp;
-                ui.post(() -> showConfirm(sym, to, amount, isEth, txTo, data, value, gasLimitF, baseGp));
+                onUi(() -> showConfirm(sym, to, normalised, isEth, txTo, data, value, gasLimitF, baseGp));
             } catch (Exception e) {
-                ui.post(() -> toast("Couldn't prepare: " + e.getMessage()));
+                onUi(() -> toast("Couldn't prepare: " + e.getMessage()));
             }
         });
     }
@@ -462,7 +652,11 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         final int[] tier = {1};   // default Medium
         LinearLayout box = colBox();
         box.addView(kvLine("Send", amount + " " + sym));
-        box.addView(kvLine("To", shortAddr(to)));
+        TextView toLabel = new TextView(this);
+        toLabel.setText("To"); toLabel.setTextColor(Design.DIM); toLabel.setTextSize(12.5f);
+        toLabel.setPadding(0, dp(6), 0, 0);
+        box.addView(toLabel);
+        box.addView(fullAddrBlock(to));
 
         TextView feeLabel = new TextView(this);
         feeLabel.setText("Network fee"); feeLabel.setTextColor(Design.DIM); feeLabel.setTextSize(12.5f);
@@ -473,6 +667,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         tierRow.setOrientation(LinearLayout.HORIZONTAL);
         final TextView[] pills = new TextView[FEE_TIERS.length];
         final TextView feeVal = new TextView(this);
+        final TextView feeWarn = new TextView(this);
         Runnable paint = () -> {
             for (int i = 0; i < pills.length; i++) {
                 boolean on = i == tier[0];
@@ -482,6 +677,19 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
             BigInteger gp = baseGp.multiply(BigInteger.valueOf(FEE_MULT[tier[0]])).divide(BigInteger.valueOf(100));
             BigInteger feeWei = gasLimit.multiply(gp);
             feeVal.setText("~" + EthWallet.format(feeWei, 18, 8) + " ETH  ·  " + EthWallet.format(gp, 9, 2) + " gwei");
+
+            // Neither number is ours — both came from an RPC. Flag anything abnormal at the moment
+            // of commitment, recomputed per tier so switching Low/Medium/High updates the warning.
+            String w = null;
+            if (gp.compareTo(EthTx.WARN_GAS_PRICE) > 0 || gasLimit.compareTo(EthTx.WARN_GAS_LIMIT) > 0) {
+                w = "⚠ Unusually high network fee — check before sending.";
+            } else if (isEth && value.signum() > 0 && feeWei.multiply(BigInteger.valueOf(4)).compareTo(value) > 0) {
+                // ETH only: for an ERC20 the fee is ETH and the amount is tokens, so the ratio is meaningless.
+                long pct = feeWei.multiply(BigInteger.valueOf(100)).divide(value).longValue();
+                w = "⚠ The fee is about " + pct + "% of the amount you're sending.";
+            }
+            feeWarn.setText(w == null ? "" : w);
+            feeWarn.setVisibility(w == null ? View.GONE : View.VISIBLE);
         };
         for (int i = 0; i < FEE_TIERS.length; i++) {
             final int idx = i;
@@ -495,6 +703,8 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         box.addView(tierRow);
         feeVal.setTextColor(Design.TEXT); feeVal.setTextSize(13f); feeVal.setPadding(0, dp(6), 0, 0);
         box.addView(feeVal);
+        feeWarn.setTextColor(Design.RED); feeWarn.setTextSize(12.5f); feeWarn.setPadding(0, dp(6), 0, 0);
+        box.addView(feeWarn);
         paint.run();
 
         new AlertDialog.Builder(this).setTitle("Confirm send")
@@ -506,9 +716,12 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
                     io.execute(() -> {
                         try {
                             String tx = EthTx.send(rpc, wallet.creds(), net.chainId, txTo, data, isEth ? value : BigInteger.ZERO, gasLimit, gasPrice);
-                            ui.post(() -> { sentDialog(tx); refresh(); });
+                            // Persist BEFORE showing it: the tx is already on the network, and losing the
+                            // hash to a rotation or a crash would leave the user with no way to find it.
+                            prefs.edit().putString("lastTx", tx).apply();
+                            onUi(() -> { sentDialog(tx); refresh(); });
                         } catch (Exception e) {
-                            ui.post(() -> toast("Send failed: " + e.getMessage()));
+                            onUi(() -> toast("Send failed: " + e.getMessage()));
                         }
                     });
                 })
@@ -550,14 +763,14 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
                 .setPositiveButton("Add", (d, w) -> {
                     modalOpen = false;
                     String addr = in.getText().toString().trim();
-                    if (!addr.startsWith("0x") || addr.length() != 42) { toast("Bad contract address"); return; }
+                    if (!ADDR.matcher(addr).matches()) { toast("Bad contract address"); return; }
                     if (tokens.has(addr)) { toast("Already added"); return; }
                     toast("Reading token…");
                     io.execute(() -> {
                         try {
                             EthNet.Token tk = TokenStore.fetch(rpc, addr);
-                            ui.post(() -> { tokens.add(tk); toast("Added " + tk.symbol); render(); refresh(); });
-                        } catch (Exception e) { ui.post(() -> toast("Not an ERC20? " + e.getMessage())); }
+                            onUi(() -> { tokens.add(tk); toast("Added " + tk.symbol); render(); refresh(); });
+                        } catch (Exception e) { onUi(() -> toast("Not an ERC20? " + e.getMessage())); }
                     });
                 })
                 .setNegativeButton("Cancel", null)
@@ -566,27 +779,49 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
     }
 
     private void tokenMenu(EthNet.Token tk) {
+        modalOpen = true;
         new AlertDialog.Builder(this).setTitle(tk.symbol)
                 .setItems(new String[]{"Send " + tk.symbol, "View on Etherscan", "Remove from list"}, (d, i) -> {
+                    modalOpen = false;
                     if (i == 0) sendDialog(tk.symbol);
-                    else if (i == 1) openUrl(ETHERSCAN + "token/" + tk.address + "?a=" + ethAddr);
+                    else if (i == 1) openUrl(ETHERSCAN + "token/" + tk.address + (ethAddr == null ? "" : "?a=" + ethAddr));
                     else { tokens.remove(tk.address); tokenBals.remove(tk.symbol); render(); }
-                }).show();
+                })
+                .setOnDismissListener(d -> modalOpen = false)
+                .show();
     }
 
     // ---- settings ----
 
     private void settingsDialog() {
+        modalOpen = true;
         new AlertDialog.Builder(this).setTitle("Settings")
-                .setItems(new String[]{"Export private key", "RPC endpoint", "Add token", "View address on Etherscan", "Switch wallet source"}, (d, i) -> {
+                .setItems(new String[]{"Export private key", "RPC endpoint", "Add token", "View address on Etherscan", "View last transaction", "Switch wallet source"}, (d, i) -> {
+                    modalOpen = false;
                     switch (i) {
-                        case 0: revealKeyDialog(); break;
+                        case 0: exportKeyFlow(); break;
                         case 1: rpcDialog(); break;
                         case 2: addTokenDialog(); break;
-                        case 3: openUrl(ETHERSCAN + "address/" + ethAddr); break;
-                        case 4: switchSourceDialog(); break;
+                        case 3: viewAddressOnEtherscan(); break;
+                        case 4: viewLastTx(); break;
+                        case 5: switchSourceDialog(); break;
                     }
-                }).show();
+                })
+                .setOnDismissListener(d -> modalOpen = false)
+                .show();
+    }
+
+    private void viewAddressOnEtherscan() {
+        if (ethAddr == null) { toast("No address yet"); return; }
+        openUrl(ETHERSCAN + "address/" + ethAddr);
+    }
+
+    /** The last broadcast hash, stored the moment the send returned so a crash or rotation
+     *  during {@link #sentDialog} can't lose the only reference to a live transaction. */
+    private void viewLastTx() {
+        String tx = prefs.getString("lastTx", null);
+        if (tx == null) { toast("No transaction sent from this device yet"); return; }
+        openUrl(net.explorerTx + tx);
     }
 
     private void rpcDialog() {
@@ -610,11 +845,19 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
     }
 
     private void switchSourceDialog() {
+        modalOpen = true;
         new AlertDialog.Builder(this).setTitle("Switch wallet source")
                 .setMessage("Re-derive from the node, or import a different key. (This doesn't move funds.)")
-                .setPositiveButton("Pair with node", (d, w) -> { prefs.edit().putString("source", "node").apply(); wallet.clear(); ethAddr = null; connectNode(); render(); })
-                .setNeutralButton("Import key", (d, w) -> { wallet.clear(); ethAddr = null; importDialog(); })
+                .setPositiveButton("Pair with node", (d, w) -> {
+                    modalOpen = false;
+                    prefs.edit().putString("source", "node").apply();
+                    wallet.clear(); ethAddr = null; ethErr = null;
+                    retryNode();   // NOT connectNode(): with the IPC already up there is no register to wait for
+                    render();
+                })
+                .setNeutralButton("Import key", (d, w) -> { modalOpen = false; wallet.clear(); ethAddr = null; importDialog(); })
                 .setNegativeButton("Cancel", null)
+                .setOnDismissListener(d -> modalOpen = false)
                 .show();
     }
 
@@ -705,6 +948,33 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         lp.rightMargin = dp(8); p.setLayoutParams(lp);
         row.addView(p);
     }
+    /**
+     * The recipient address, in full, monospace, never truncated.
+     *
+     * Address-poisoning attacks mint a vanity address matching the first and last few characters of
+     * one you have already used, so a truncated "0x123456…abcdef" renders the attacker's address and
+     * the real one IDENTICAL. The EIP-55 check in confirmSend does not help — a poisoned address is
+     * validly checksummed. The confirm screen is the one place the user commits to a destination, so
+     * it shows all 42 characters; the ends stay accented to preserve the quick visual check, but the
+     * middle — the only part that differs — is now actually on screen.
+     */
+    private TextView fullAddrBlock(String addr) {
+        TextView t = new TextView(this);
+        t.setTypeface(android.graphics.Typeface.MONOSPACE);
+        t.setTextSize(14f);
+        t.setTextColor(Design.TEXT);
+        t.setLineSpacing(dp(2), 1f);
+        t.setPadding(0, dp(2), 0, dp(6));
+        if (addr == null) { t.setText("—"); return t; }
+        android.text.SpannableString s = new android.text.SpannableString(addr);
+        int head = Math.min(8, addr.length());              // "0x" + 6 hex
+        int tail = Math.max(head, addr.length() - 6);
+        s.setSpan(new android.text.style.ForegroundColorSpan(Design.ACCENT), 0, head, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        s.setSpan(new android.text.style.ForegroundColorSpan(Design.ACCENT), tail, addr.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        t.setText(s);
+        return t;
+    }
+
     private TextView kvLine(String k, String v) {
         TextView t = new TextView(this);
         t.setText(k + ":  " + v); t.setTextColor(Design.TEXT); t.setTextSize(14f); t.setPadding(0, dp(4), 0, dp(4));
@@ -719,9 +989,10 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         b.setBackgroundColor(0xFF3A2A00);
         b.setPadding(dp(16), dp(10), dp(16), dp(10));
         TextView t = new TextView(this);
-        t.setText("Enable “ETH Wallet” in Minima Core → Apps to derive your key from the node.");
+        t.setText("Enable “ETH Wallet” in Minima Core → Apps, then tap here to retry.");
         t.setTextColor(Design.ACCENT); t.setTextSize(12.5f);
         b.addView(t);
+        b.setOnClickListener(v -> { toast("Retrying…"); retryNode(); });
         return b;
     }
 
@@ -735,14 +1006,49 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
 
     private int dp(int v) { return Design.dp(this, v); }
     private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }
-    private void copy(String s) {
+    private void copy(String s) { copy(s, false); }
+
+    /** Copy to the clipboard. Sensitive values are flagged so Android 13+ hides them from the paste
+     *  preview, and are wiped after a minute so a private key isn't left sitting there. */
+    private void copy(String s, boolean sensitive) {
         android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("eth", s));
+        if (cm == null) return;
+        android.content.ClipData clip = android.content.ClipData.newPlainText(sensitive ? "private key" : "eth", s);
+        if (sensitive && android.os.Build.VERSION.SDK_INT >= 33) {
+            android.os.PersistableBundle extras = new android.os.PersistableBundle();
+            extras.putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true);
+            clip.getDescription().setExtras(extras);
+        }
+        cm.setPrimaryClip(clip);
+        if (sensitive) {
+            final android.content.Context app = getApplicationContext();   // outlives this Activity
+            ui.postDelayed(() -> clearClipboardIfStill(app, s), 60_000L);
+        }
+    }
+
+    /** Best-effort: Android 10+ only permits clipboard access while focused, so this can no-op. */
+    private static void clearClipboardIfStill(android.content.Context ctx, String expected) {
+        try {
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) ctx.getSystemService(CLIPBOARD_SERVICE);
+            if (cm == null) return;
+            android.content.ClipData cur = cm.getPrimaryClip();
+            if (cur == null || cur.getItemCount() == 0) return;
+            CharSequence t = cur.getItemAt(0).getText();
+            if (t != null && expected.contentEquals(t)) {
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("", ""));
+            }
+        } catch (Throwable ignore) {}
     }
     private void openUrl(String url) {
         try { startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))); }
         catch (Exception e) { toast("No browser"); }
     }
+    /** Host of the RPC that actually answered — named in fee warnings so the user knows who to distrust. */
+    private String rpcHost() {
+        try { return new java.net.URL(rpc.url()).getHost(); } catch (Exception e) { return "the RPC"; }
+    }
+
     private static String shortAddr(String a) {
         if (a == null) return "—";
         return a.length() > 14 ? a.substring(0, 8) + "…" + a.substring(a.length() - 6) : a;

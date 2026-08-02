@@ -26,7 +26,15 @@ import java.util.List;
  */
 public final class EthWallet {
 
-    public interface Cb { void ok(String address); void err(String msg); }
+    public interface Cb {
+        void ok(String address);
+        void err(String msg);
+        /** The node derived a key for a DIFFERENT address than the one previously pinned. */
+        void addressChanged(String pinned, String derived);
+    }
+
+    /** A node seedrandom reply must be exactly 32 bytes of hex — see {@link #deriveFromNode}. */
+    private static final java.util.regex.Pattern KEY64 = java.util.regex.Pattern.compile("[0-9a-fA-F]{64}");
 
     private volatile Credentials creds;
     private volatile boolean imported;   // true if the key was imported rather than seed-derived
@@ -43,17 +51,46 @@ public final class EthWallet {
         return org.web3j.utils.Numeric.toHexStringWithPrefixZeroPadded(creds.getEcKeyPair().getPrivateKey(), 64);
     }
 
-    /** Derive the ETH key from the node seed (deterministic, not stored). */
-    public void deriveFromNode(NodeApi node, final Handler ui, final Cb cb) {
+    /**
+     * Derive the ETH key from the node seed (deterministic, not stored).
+     *
+     * @param expectedAddr the address this node derived last time, or null on first ever derivation.
+     *
+     * Two guards, both of which must pass BEFORE the key is adopted:
+     *
+     * 1. The reply must be exactly 64 hex chars. {@code Credentials.create} accepts any hex length —
+     *    a reply of "0x01" yields private key 1, a famous address that is swept within seconds — so
+     *    a truncated or malformed reply must never become a live key.
+     * 2. The resulting address must match {@code expectedAddr}. This is the control that catches a
+     *    reseeded node, a spoofed IPC responder, or a node bug silently moving the user to a
+     *    different wallet while their funds sit at the old address.
+     *
+     * The {@link #creds} field is only assigned once both pass, so a rejected key is never briefly live.
+     */
+    public void deriveFromNode(NodeApi node, final Handler ui, final String expectedAddr, final Cb cb) {
         node.cmd("seedrandom modifier:ethbridge", new NodeApi.Cb() {
             @Override public void onResult(JSONObject j) {
                 JSONObject r = j.optJSONObject("response");
-                String sr = r == null ? "" : r.optString("seedrandom", "");
+                String sr = r == null ? "" : r.optString("seedrandom", "").trim();
                 if (sr.isEmpty()) { post(ui, () -> cb.err("Node returned no seedrandom — is the node write-enabled?")); return; }
+                final String hex = sr.startsWith("0x") || sr.startsWith("0X") ? sr.substring(2) : sr;
+                if (!KEY64.matcher(hex).matches()) {
+                    post(ui, () -> cb.err("Node returned a malformed key (" + hex.length() + " chars, expected 64). Not using it."));
+                    return;
+                }
                 try {
-                    creds = Credentials.create(sr.startsWith("0x") ? sr : "0x" + sr);
+                    final Credentials c = Credentials.create("0x" + hex);
+                    if (c.getEcKeyPair().getPrivateKey().signum() == 0) {
+                        post(ui, () -> cb.err("Node returned an all-zero key. Not using it."));
+                        return;
+                    }
+                    final String a = c.getAddress();
+                    if (expectedAddr != null && !expectedAddr.equalsIgnoreCase(a)) {
+                        post(ui, () -> cb.addressChanged(expectedAddr, a));   // creds deliberately untouched
+                        return;
+                    }
+                    creds = c;
                     imported = false;
-                    final String a = creds.getAddress();
                     post(ui, () -> cb.ok(a));
                 } catch (Exception e) {
                     post(ui, () -> cb.err("Key derivation failed: " + e.getMessage()));

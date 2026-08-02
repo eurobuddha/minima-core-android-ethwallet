@@ -28,17 +28,18 @@ public final class EthRpc {
     };
 
     private volatile String url;             // the endpoint that last worked (sticky)
-    private final java.util.List<String> endpoints = new java.util.ArrayList<>();
+    /** Replaced wholesale, never mutated in place: setUrl runs on the UI thread while call()
+     *  may be iterating this list on the IO thread. A volatile swap keeps that race benign. */
+    private volatile java.util.List<String> endpoints = java.util.Collections.emptyList();
 
     public EthRpc(String url) { setUrl(url); }
 
-    public synchronized void setUrl(String url) {
-        this.url = url;
-        endpoints.clear();
+    public void setUrl(String url) {
         java.util.LinkedHashSet<String> set = new java.util.LinkedHashSet<>();
         set.add(url);                                  // configured primary first
         for (String f : FALLBACKS) set.add(f);         // then the known-good keyless nodes
-        endpoints.addAll(set);
+        this.endpoints = java.util.Collections.unmodifiableList(new java.util.ArrayList<>(set));
+        this.url = url;                                // publish the list before the url it belongs to
     }
 
     public String url() { return url; }
@@ -49,7 +50,7 @@ public final class EthRpc {
      */
     public Object call(String method, JSONArray params) throws IOException {
         StringBuilder errs = new StringBuilder();
-        for (String ep : endpoints) {
+        for (String ep : endpoints) {   // snapshot: the field is swapped, never mutated
             try {
                 Object r = callOnce(ep, method, params);
                 if (!ep.equals(url)) url = ep;         // stick to whichever responded

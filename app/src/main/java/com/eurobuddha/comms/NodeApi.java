@@ -33,18 +33,9 @@ public class NodeApi {
     /** Returned as the error message when the node says we are not enabled yet. */
     public static final String ERR_NOT_ENABLED = "NOT_ENABLED";
 
+    /** This app issues exactly one node command — `seedrandom`, a read. The write/PoW timeout tier
+     *  from the utxo scaffold was unreachable here and has been dropped. */
     private static final long READ_TIMEOUT_MS = 30000;
-    private static final long WRITE_TIMEOUT_MS = 180000;   // build + proof-of-work + post is slow on mobile
-
-    /** Transaction/PoW commands can take a long time on a phone; reads are quick. */
-    private static long timeoutFor(String command) {
-        String c = command == null ? "" : command.trim();
-        if (c.startsWith("send") || c.startsWith("consolidate") || c.startsWith("txnsign")
-                || c.startsWith("txnpost") || c.startsWith("tokencreate") || c.startsWith("txnbasics")) {
-            return WRITE_TIMEOUT_MS;
-        }
-        return READ_TIMEOUT_MS;
-    }
 
     private final MinimaAPI mApi;
     private final Handler mMain = new Handler(Looper.getMainLooper());
@@ -89,7 +80,7 @@ public class NodeApi {
         };
         ref[0] = timeout;
         mPending.add(timeout);
-        mMain.postDelayed(timeout, timeoutFor(command));
+        mMain.postDelayed(timeout, READ_TIMEOUT_MS);
 
         mApi.Command(command, new MinimaAPIListener() {
             @Override

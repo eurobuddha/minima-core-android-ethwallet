@@ -17,8 +17,6 @@ public final class Design {
     public static final int TEXT     = 0xFFFFFFFF;
     public static final int DIM      = 0xFF9A9AA8;
     public static final int DIM2     = 0xFF6A6A78;
-    public static final int IN       = 0xFF2ECC71;   // received (green)
-    public static final int OUT      = 0xFFF7931A;   // sent (orange)
     public static final int RED      = 0xFFE74C3C;
 
     public static int dp(Context c, int v) {
