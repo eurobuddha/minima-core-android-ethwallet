@@ -1,0 +1,17 @@
+#!/bin/sh
+# Guardrail (Android) — every code change ships with a version bump.
+# Blocks a commit touching app/src/** unless app/build.gradle versionCode
+# changed vs HEAD. Real funds, real chain. Do NOT bypass with --no-verify.
+staged=$(git diff --cached --name-only); [ -z "$staged" ] && exit 0
+code=$(printf '%s\n' "$staged" | grep -E '^app/src/'); [ -z "$code" ] && exit 0
+sv=$(git show :app/build.gradle 2>/dev/null | grep -E 'versionCode[[:space:]]+[0-9]+' | head -1 | grep -oE '[0-9]+' | head -1)
+hv=$(git show HEAD:app/build.gradle 2>/dev/null | grep -E 'versionCode[[:space:]]+[0-9]+' | head -1 | grep -oE '[0-9]+' | head -1)
+[ -z "$sv" ] && sv=$(grep -E 'versionCode[[:space:]]+[0-9]+' app/build.gradle 2>/dev/null | head -1 | grep -oE '[0-9]+' | head -1)
+if [ -n "$hv" ] && [ "$sv" = "$hv" ]; then
+  echo "──────────────────────────────────────────────────────────────────"
+  echo "  COMMIT BLOCKED — app/src changed but versionCode did NOT bump (still $hv)."
+  echo "  Rule: every code change ships with a version bump (real funds, real chain)."
+  echo "  Fix: bump versionCode + versionName in app/build.gradle, stage it, commit again."
+  echo "──────────────────────────────────────────────────────────────────"; exit 1
+fi
+exit 0
