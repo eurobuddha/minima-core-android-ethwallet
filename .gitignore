@@ -3,3 +3,6 @@ build/
 *.iml
 .idea/
 local.properties
+
+# Built APKs live in the minima-core-apks catalog + GitHub Releases
+*.apk
