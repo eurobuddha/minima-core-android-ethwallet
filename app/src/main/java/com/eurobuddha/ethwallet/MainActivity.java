@@ -295,7 +295,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         t.setTextColor(Design.DIM); t.setTextSize(13f); t.setPadding(0, 0, 0, dp(10));
         box.addView(t);
         EditText in = new EditText(this);
-        in.setHint("0x…"); in.setTextColor(Design.TEXT); in.setHintTextColor(Design.DIM2);
+        in.setHint("0x…");
         in.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
         box.addView(in);
         new AlertDialog.Builder(this)
@@ -438,7 +438,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
             box.addView(iv);
         }
         TextView a = new TextView(this);
-        a.setText(ethAddr); a.setTextColor(Design.TEXT); a.setTextSize(13f); a.setTextIsSelectable(true);
+        a.setText(ethAddr); a.setTextSize(13f); a.setTextIsSelectable(true);
         a.setTypeface(android.graphics.Typeface.MONOSPACE);
         box.addView(a);
         TextView note = new TextView(this);
@@ -484,7 +484,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         warn.setTextColor(Design.RED); warn.setTextSize(12.5f); warn.setPadding(0, 0, 0, dp(10));
         box.addView(warn);
         TextView key = new TextView(this);
-        key.setText(k); key.setTextColor(Design.TEXT); key.setTextSize(13f); key.setTextIsSelectable(true);
+        key.setText(k); key.setTextSize(13f); key.setTextIsSelectable(true);
         key.setTypeface(android.graphics.Typeface.MONOSPACE);
         box.addView(key);
         AlertDialog dlg = new AlertDialog.Builder(this).setTitle("Private key")
@@ -525,7 +525,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         box.addView(tokenLine);
 
         final EditText to = new EditText(this);
-        to.setHint("Recipient 0x…"); to.setTextColor(Design.TEXT); to.setHintTextColor(Design.DIM2);
+        to.setHint("Recipient 0x…");
         to.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
         box.addView(to);
         TextView scan = Design.pill(this, "⌗  Scan QR", Design.SURFACE2, Design.TEXT);
@@ -535,7 +535,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         box.addView(scan);
 
         final EditText amt = new EditText(this);
-        amt.setHint("Amount"); amt.setTextColor(Design.TEXT); amt.setHintTextColor(Design.DIM2);
+        amt.setHint("Amount");
         amt.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         ap.topMargin = dp(8); amt.setLayoutParams(ap);
@@ -701,7 +701,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
             pills[i] = p; tierRow.addView(p);
         }
         box.addView(tierRow);
-        feeVal.setTextColor(Design.TEXT); feeVal.setTextSize(13f); feeVal.setPadding(0, dp(6), 0, 0);
+        feeVal.setTextSize(13f); feeVal.setPadding(0, dp(6), 0, 0);
         box.addView(feeVal);
         feeWarn.setTextColor(Design.RED); feeWarn.setTextSize(12.5f); feeWarn.setPadding(0, dp(6), 0, 0);
         box.addView(feeWarn);
@@ -734,7 +734,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         modalOpen = true;
         LinearLayout box = colBox();
         TextView t = new TextView(this);
-        t.setText("Broadcast.\n\n" + tx); t.setTextColor(Design.TEXT); t.setTextSize(12.5f);
+        t.setText("Broadcast.\n\n" + tx); t.setTextSize(12.5f);
         t.setTypeface(android.graphics.Typeface.MONOSPACE); t.setTextIsSelectable(true);
         box.addView(t);
         new AlertDialog.Builder(this).setTitle("Sent")
@@ -755,7 +755,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         t.setTextColor(Design.DIM); t.setTextSize(13f); t.setPadding(0, 0, 0, dp(10));
         box.addView(t);
         EditText in = new EditText(this);
-        in.setHint("0x… contract"); in.setTextColor(Design.TEXT); in.setHintTextColor(Design.DIM2);
+        in.setHint("0x… contract");
         in.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
         box.addView(in);
         new AlertDialog.Builder(this).setTitle("Add token")
@@ -828,7 +828,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         modalOpen = true;
         LinearLayout box = colBox();
         EditText in = new EditText(this);
-        in.setText(rpc.url()); in.setTextColor(Design.TEXT);
+        in.setText(rpc.url());
         in.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         box.addView(in);
         TextView note = new TextView(this);
@@ -962,7 +962,6 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         TextView t = new TextView(this);
         t.setTypeface(android.graphics.Typeface.MONOSPACE);
         t.setTextSize(14f);
-        t.setTextColor(Design.TEXT);
         t.setLineSpacing(dp(2), 1f);
         t.setPadding(0, dp(2), 0, dp(6));
         if (addr == null) { t.setText("—"); return t; }
@@ -977,7 +976,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
 
     private TextView kvLine(String k, String v) {
         TextView t = new TextView(this);
-        t.setText(k + ":  " + v); t.setTextColor(Design.TEXT); t.setTextSize(14f); t.setPadding(0, dp(4), 0, dp(4));
+        t.setText(k + ":  " + v); t.setTextSize(14f); t.setPadding(0, dp(4), 0, dp(4));
         return t;
     }
 
