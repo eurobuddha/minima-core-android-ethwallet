@@ -4,7 +4,7 @@
 
     <!-- The same-address key is derived from the local Minima node over broadcast-Intent IPC. -->
     <queries>
-        <package android:name="org.minimarex.minimacore" />
+        <package android:name="com.eurobuddha.minimacore" />
     </queries>
 
     <!-- Ethereum JSON-RPC for balances + broadcasting transactions. -->

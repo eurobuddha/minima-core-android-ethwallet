@@ -58,8 +58,8 @@
 
 # ---- Minima IPC -------------------------------------------------------------------------------
 # minimaapi.aar is a vendored binary whose broadcast payloads are keyed on class/field names.
--keep class org.minimarex.minimaapi.** { *; }
--dontwarn org.minimarex.minimaapi.**
+-keep class com.eurobuddha.minimaapi.** { *; }
+-dontwarn com.eurobuddha.minimaapi.**
 
 # ---- AndroidX Security / Tink -----------------------------------------------------------------
 # Tink resolves key managers by protobuf type URL through reflection. KeyVault self-heals a broken

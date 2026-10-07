@@ -6,8 +6,8 @@ import android.os.Handler;
 import android.os.Looper;
 
 import org.json.JSONObject;
-import org.minimarex.minimaapi.MinimaAPI;
-import org.minimarex.minimaapi.MinimaAPIListener;
+import com.eurobuddha.minimaapi.MinimaAPI;
+import com.eurobuddha.minimaapi.MinimaAPIListener;
 
 /**
  * Thin wrapper around the Minima Core native IPC SDK.
