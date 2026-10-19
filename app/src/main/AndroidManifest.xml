@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Scan a recipient address QR. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <!-- allowBackup=false: this app custodies an Ethereum private key, and the Tink keysets that
          protect it are sealed by a device-bound Keystore key that is never backed up — a restored

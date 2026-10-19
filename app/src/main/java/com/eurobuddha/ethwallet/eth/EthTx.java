@@ -43,6 +43,21 @@ public final class EthTx {
     /** Explicit gas price — the caller picks the fee tier (low/medium/high). */
     public static String send(EthRpc rpc, Credentials creds, long chainId,
                               String to, String data, BigInteger value, BigInteger gasLimit, BigInteger gasPrice) throws Exception {
+        return send(rpc, creds, chainId, to, data, value, gasLimit, gasPrice, () -> true);
+    }
+
+    /** Same fail-closed check as AtomiX EthTx; no signature is broadcast after refusal. */
+    public static void requireAuthorized(java.util.function.BooleanSupplier authorized) {
+        boolean allowed;
+        try { allowed = authorized != null && authorized.getAsBoolean(); }
+        catch (RuntimeException failure) { allowed = false; }
+        if (!allowed) throw new IllegalStateException("Wallet session changed. Review again.");
+    }
+
+    public static String send(EthRpc rpc, Credentials creds, long chainId,
+                              String to, String data, BigInteger value, BigInteger gasLimit, BigInteger gasPrice,
+                              java.util.function.BooleanSupplier authorized) throws Exception {
+        requireAuthorized(authorized);
         if (gasPrice == null || gasPrice.signum() <= 0) gasPrice = FALLBACK_GAS_PRICE;
 
         // Last gate before the key touches the transaction — every send in the app funnels through here.
@@ -57,11 +72,13 @@ public final class EthTx {
 
         BigInteger nonce = rpc.getTransactionCount(creds.getAddress());
 
+        requireAuthorized(authorized);
         RawTransaction raw = RawTransaction.createTransaction(
                 nonce, gasPrice, gasLimit, to,
                 value == null ? BigInteger.ZERO : value,
                 data == null ? "" : data);   // native ETH transfer has no data — web3j NPEs on a null data hex
         byte[] signed = TransactionEncoder.signMessage(raw, chainId, creds);
+        requireAuthorized(authorized);
         String txHash = rpc.sendRawTransaction(Numeric.toHexString(signed));
         if (txHash == null || !txHash.startsWith("0x")) throw new Exception("send failed: " + txHash);
         return txHash;

@@ -1,0 +1,20 @@
+Standalone parity checkpoint: ETH Wallet 0.2.7 / code207
+
+Ports Pandamonium 38917f8 (asset identity) and 8446277 (captured account/RPC).
+Reused adapt-pandamonium-review-eth-assets.py and adapt-pandamonium-review-eth-context.py
+with standalone dialog/text substitutions. Native ETH and ERC20 assets are distinct
+by contract, including duplicate symbols. Cards/picker/MAX/review retain the selected
+contract. Account/RPC changes invalidate stale reviews and queued signing. Sender and
+contract addresses appear in full. Existing IPC, private-key storage, package and
+fee rules retained. Added AtomiX's optional-camera manifest declaration for lint.
+
+Reused AssetSelectionTest and EthAuthorizationTest with standalone theme/setup.
+14 mocked JVM tests passed. Signed release assembled offline; lint 0 errors and
+69 warnings. Source/diff review found no open issue within these two ports.
+Separate node-key derivation and nonce fixes remain under review; this checkpoint
+is not final release approval or a claim that all standalone parity work is done.
+Package: com.eurobuddha.ethwallet; version 0.2.7/code207.
+Certificate SHA-256:
+eca1383c9d27683a281fbe6355356267877dc2dd14d963d7cc289ca0700e517f
+Candidate: dist/eth-wallet-0.2.7-candidate.apk; checksum beside it.
+No device install, live transfer or publication. Final rollout held for Fold check.
