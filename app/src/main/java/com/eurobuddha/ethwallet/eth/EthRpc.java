@@ -69,7 +69,7 @@ public final class EthRpc {
             JSONObject payload = new JSONObject()
                     .put("jsonrpc", "2.0").put("id", 1).put("method", method)
                     .put("params", params == null ? new JSONArray() : params);
-            c = (HttpURLConnection) new URL(url).openConnection();
+            c = openConnection(url);
             c.setRequestMethod("POST");
             c.setRequestProperty("Content-Type", "application/json");
             c.setDoOutput(true);
@@ -91,12 +91,20 @@ public final class EthRpc {
                 JSONObject err = resp.optJSONObject("error");
                 throw new IOException(host(url) + ": " + (err == null ? snippet(trimmed) : err.optString("message", snippet(trimmed))));
             }
-            return resp.opt("result");
+            Object result = resp.opt("result");
+            // Validate inside the fallback loop too: an empty reply is not account nonce zero.
+            if ("eth_getTransactionCount".equals(method)) transactionCount(result);
+            return result;
         } catch (JSONException e) {
             throw new IOException(host(url) + " parse error: " + e.getMessage());
         } finally {
             if (c != null) c.disconnect();
         }
+    }
+
+    // Same injectable connection boundary used by Salon Hosting's HTTP regression tests.
+    static HttpURLConnection openConnection(String url) throws IOException {
+        return (HttpURLConnection) new URL(url).openConnection();
     }
 
     private static String host(String url) {
@@ -123,7 +131,23 @@ public final class EthRpc {
     }
 
     public BigInteger getTransactionCount(String address) throws IOException {
-        return hexToBig(callStr("eth_getTransactionCount", new JSONArray().put(address).put("pending")));
+        return transactionCount(call("eth_getTransactionCount", new JSONArray().put(address).put("pending")));
+    }
+
+    /** RPC QUANTITY is distinct from padded ABI DATA. EIP-2681 bounds account nonces to 64 bits. */
+    static BigInteger transactionCount(Object result) throws IOException {
+        if (!(result instanceof String) || !((String) result).matches("0x(?:0|[1-9a-fA-F][0-9a-fA-F]{0,15})")) {
+            throw new IOException("Invalid Ethereum transaction count from RPC");
+        }
+        return new BigInteger(((String) result).substring(2), 16);
+    }
+
+    static void requireSendableNonce(BigInteger nonce) throws IOException {
+        // 2^64-1 is a valid exhausted account count, but cannot be used by a new transaction.
+        if (nonce == null || nonce.signum() < 0 || nonce.bitLength() > 64
+                || nonce.equals(BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE))) {
+            throw new IOException("Ethereum transaction nonce is outside the sendable range");
+        }
     }
 
     public BigInteger blockNumber() throws IOException {

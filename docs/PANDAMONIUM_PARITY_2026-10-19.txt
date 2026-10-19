@@ -30,3 +30,16 @@ APK version/package and family certificate verified. Candidate now:
 dist/eth-wallet-0.2.8-candidate.apk (checksum beside it).
 No new issue found in the port review. Nonce coordination remains under the main
 review; this is a local candidate, with final publication still held.
+
+Nonce validation checkpoint 0.2.9/209
+Reused integrated nonce RPC validation and signing bounds; standalone node transport,
+fees and existing authorization behavior preserved. AtomiX uses BigInteger counters.
+Missing/malformed/noncanonical replies cannot become nonce zero; fallback remains
+available. Padded ABI DATA parsing unchanged. Exhausted accounts cannot sign.
+28 tests in each debug/release suite pass with zero failures/errors/skips.
+Release lint passes without errors; existing warnings remain. Signed local candidate
+package/version, ZIP integrity and family certificate verified.
+SHA256 3835b60903f08ce37fe7974dc5898b9c3245e22439aa68aef548667b5bae531f
+Reviewed complete changed RPC/signing code and regression suite; approve this bounded
+repair. Shared allocation/unknown outcomes/event validation remain open. No live
+transactions, installations or publication. Full standalone parity is unfinished.

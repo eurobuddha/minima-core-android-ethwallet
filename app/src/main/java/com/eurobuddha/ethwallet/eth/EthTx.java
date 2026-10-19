@@ -71,6 +71,7 @@ public final class EthTx {
         }
 
         BigInteger nonce = rpc.getTransactionCount(creds.getAddress());
+        EthRpc.requireSendableNonce(nonce);
 
         requireAuthorized(authorized);
         RawTransaction raw = RawTransaction.createTransaction(
