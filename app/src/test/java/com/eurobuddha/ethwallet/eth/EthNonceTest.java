@@ -21,7 +21,7 @@ public class EthNonceTest {
     @Before public void setup() throws Exception {
 
         rpc = spy(new EthRpc("https://fixture.invalid"));
-        doReturn(HASH).when(rpc).sendRawTransaction(anyString());
+        JournalFixture.install();JournalFixture.wire(rpc);
 
     }
     String send() throws Exception {
@@ -44,9 +44,9 @@ public class EthNonceTest {
         doReturn("0x0").when(rpc).call(eq("eth_getTransactionCount"), any(JSONArray.class));
         doAnswer(inv -> {
             assertEquals(BigInteger.ZERO, TransactionDecoder.decode(inv.getArgument(0)).getNonce());
-            return HASH;
+            return JournalFixture.accept(inv.getArgument(0));
         }).when(rpc).sendRawTransaction(anyString());
-        assertEquals(HASH, send());
+        assertEquals( send(),JournalFixture.lastHash);
         verify(rpc).call(eq("eth_getTransactionCount"), argThat(params ->
                 params.length() == 2 && KEY.getAddress().equals(params.optString(0)) && "pending".equals(params.optString(1))));
     }
@@ -55,9 +55,9 @@ public class EthNonceTest {
         doReturn("0x" + nonce.toString(16)).when(rpc).call(eq("eth_getTransactionCount"), any(JSONArray.class));
         doAnswer(inv -> {
             assertEquals(nonce, TransactionDecoder.decode(inv.getArgument(0)).getNonce());
-            return HASH;
+            return JournalFixture.accept(inv.getArgument(0));
         }).when(rpc).sendRawTransaction(anyString());
-        assertEquals(HASH, send());
+        assertEquals( send(),JournalFixture.lastHash);
     }
     @Test public void exhaustedAccountIsReadableButCannotSign() throws Exception {
         doReturn("0xffffffffffffffff").when(rpc).call(eq("eth_getTransactionCount"), any(JSONArray.class));
@@ -98,4 +98,29 @@ public class EthNonceTest {
         assertEquals(BigInteger.valueOf(255), EthRpc.transactionCount("0xfF"));
     }
 
+
+    @Test public void invalidRpcEnvelopeOrHttpStatusCannotSupplyANonce() throws Exception {
+        String good="{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"0x4\"}";
+        String[] bodies={good.replace("2.0","1.0"),good.replace("\"id\":1","\"id\":2"),good.replace("\"id\":1","\"id\":\"1\""),
+            good+" trailing",good.replace("\"result\"", "\"missing\""),good.replace("}",",\"error\":null}"),good};
+        for(int index=0;index<bodies.length;index++) {
+            try(MockedStatic<EthRpc> transport=mockStatic(EthRpc.class,CALLS_REAL_METHODS)) {
+                java.net.HttpURLConnection primary=response(bodies[index]),fallback=response(good);
+                if(index==bodies.length-1)when(primary.getResponseCode()).thenReturn(302);
+                java.util.concurrent.atomic.AtomicInteger calls=new java.util.concurrent.atomic.AtomicInteger();
+                transport.when(()->EthRpc.openConnection(anyString())).thenAnswer(i->{int count=calls.getAndIncrement();if(count>1)throw new AssertionError("Unexpected fallback");return count==0?primary:fallback;});
+                assertEquals(BigInteger.valueOf(4),new EthRpc("https://fixture.invalid").getTransactionCount(KEY.getAddress()));
+                assertEquals(2,calls.get());verify(primary).setInstanceFollowRedirects(false);verify(primary).disconnect();
+            }
+        }
+    }
+    @Test public void oversizedRpcBodyIsClosedAndFallsBackWithoutParsing() throws Exception {
+        try(MockedStatic<EthRpc> transport=mockStatic(EthRpc.class,CALLS_REAL_METHODS)) {
+            java.net.HttpURLConnection primary=response(""),fallback=response("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"0x4\"}");
+            java.io.InputStream body=spy(new java.io.ByteArrayInputStream(new byte[4*1024*1024+1]));when(primary.getInputStream()).thenReturn(body);
+            java.util.concurrent.atomic.AtomicInteger calls=new java.util.concurrent.atomic.AtomicInteger();
+            transport.when(()->EthRpc.openConnection(anyString())).thenAnswer(i->{int count=calls.getAndIncrement();if(count>1)throw new AssertionError("Unexpected fallback");return count==0?primary:fallback;});
+            assertEquals(BigInteger.valueOf(4),new EthRpc("https://fixture.invalid").getTransactionCount(KEY.getAddress()));verify(body).close();verify(primary).disconnect();
+        }
+    }
 }

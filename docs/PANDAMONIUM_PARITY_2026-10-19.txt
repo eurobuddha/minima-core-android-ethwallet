@@ -43,3 +43,48 @@ SHA256 3835b60903f08ce37fe7974dc5898b9c3245e22439aa68aef548667b5bae531f
 Reviewed complete changed RPC/signing code and regression suite; approve this bounded
 repair. Shared allocation/unknown outcomes/event validation remain open. No live
 transactions, installations or publication. Full standalone parity is unfinished.
+
+Durable Ethereum submission parity —0.2.10/code210
+Reused Pandamonium's exact EthTx, EthRpc and EthereumTransactions source. The latter
+is vendored as Java under com.eurobuddha.minimaapi.ethereum because the existing IPC
+AAR has no such classes; the IPC AAR and node derivation are unchanged. No dependency
+was added. The existing R8 keep rules retain the journal and web3j signing classes.
+MainActivity initializes the app-private SQLite journal before sending. Signed bytes
+are acknowledged to storage before broadcast. Unknown replies retain their exact
+hash and saved transaction; Last transaction opens the saved hash. The UI distinguishes
+an unknown outcome from a definite failure. HTTPS, strict RPC envelope/status/id,
+chain check, disabled redirects and the bounded response reader match Pandamonium.
+
+Included a shared-code repair discovered during this port: four regression tests
+first reproduced duplicate manual payment when the refreshed gas estimate changes,
+and replay above a newly reviewed gas price. Unknown retries now retain the original
+payment/gas limit; lower newly reviewed fee fields cannot authorize replay. A confirmed
+original returns its hash. Stable AtomiX operation identities remain unchanged in the
+shared source. Journal SHA256:
+47a79bf41aff1ece7e8bafb6a3b7220a3fa7126dd41cf11dcca23873a3cffd5e
+
+Reused journal, funding-view, authorization and RPC tests; adapted the host's real
+SQLite persistence test to two standalone connections. Added actual Activity startup
+and uncertain-send UI regressions.68 tests pass in each debug/release suite with
+zero failures/errors/skips. All network calls are mocked and credentials are public
+synthetic fixtures. Lint:0 errors,0 fatal,71 warnings, unchanged from0.2.9.
+Read/reviewed the full changed code, callers, manifest and shrinking rules: approve
+this bounded parity checkpoint. KeyVault, source selection, IPC and account/asset
+review protections remain intact. No real seed, counter or transaction was used.
+
+Scope limits: this APK's private journal cannot coordinate another APK or device
+using the same key. Full manual recovery/history UX, accepted-send/UI-crash request
+identity, wider receipt/reorg handling and retention/performance remain under review.
+This is not a completed full-wallet audit. Fold verification and rollout remain open.
+Existing .gitattributes, debug overlay, graphify data and old candidate checksum files
+were preserved without staging them. Signing/APK evidence is recorded below.
+
+Signed candidate evidence
+Canonical shared repair: minima-core-android fork commit9eec40a.
+Offline build, test, shrinking and lint completed successfully in5m58s.
+Package com.eurobuddha.ethwallet0.2.10/code210;8793906 bytes.
+dist/eth-wallet-0.2.10-candidate.apk
+SHA256 56f038b5ff7f29ecf2b9de758d013e625f0a60f62d799fcdc2dc154768b051f5
+APK ZIP/DEX and v2 signature verified. RSA4096 family certificate SHA256:
+eca1383c9d27683a281fbe6355356267877dc2dd14d963d7cc289ca0700e517f
+No installation, live transaction or publication. Full parity and device checks remain.

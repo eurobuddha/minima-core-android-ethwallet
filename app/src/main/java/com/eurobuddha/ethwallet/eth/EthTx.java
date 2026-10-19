@@ -70,18 +70,24 @@ public final class EthTx {
                     + " is outside the safe range (max " + MAX_GAS_LIMIT + "). Check your RPC endpoint.");
         }
 
-        BigInteger nonce = rpc.getTransactionCount(creds.getAddress());
-        EthRpc.requireSendableNonce(nonce);
+        return submit(rpc,creds,chainId,to,data,value,gasLimit,gasPrice,authorized,null);
+    }
 
+    private static String submit(EthRpc rpc,Credentials creds,long chainId,String to,String data,BigInteger value,
+                                 BigInteger gas,BigInteger price,java.util.function.BooleanSupplier authorized,String operation) throws Exception {
         requireAuthorized(authorized);
-        RawTransaction raw = RawTransaction.createTransaction(
-                nonce, gasPrice, gasLimit, to,
-                value == null ? BigInteger.ZERO : value,
-                data == null ? "" : data);   // native ETH transfer has no data — web3j NPEs on a null data hex
-        byte[] signed = TransactionEncoder.signMessage(raw, chainId, creds);
-        requireAuthorized(authorized);
-        String txHash = rpc.sendRawTransaction(Numeric.toHexString(signed));
-        if (txHash == null || !txHash.startsWith("0x")) throw new Exception("send failed: " + txHash);
-        return txHash;
+        return com.eurobuddha.minimaapi.ethereum.EthereumTransactions.shared().send(
+                new com.eurobuddha.minimaapi.ethereum.EthereumTransactions.Rpc() {
+                    public BigInteger chain() throws Exception { return EthRpc.transactionCount(rpc.call("eth_chainId",new JSONArray())); }
+                    public BigInteger pending(String address) throws Exception { return rpc.getTransactionCount(address); }
+                    public String broadcast(String raw) throws Exception { return rpc.sendRawTransaction(raw); }
+                    public org.json.JSONObject receipt(String hash) throws Exception { return object(rpc.call("eth_getTransactionReceipt",new JSONArray().put(hash))); }
+                    public org.json.JSONObject transaction(String hash) throws Exception { return object(rpc.call("eth_getTransactionByHash",new JSONArray().put(hash))); }
+                },creds,chainId,to,data,value,gas,price,operation,()->requireAuthorized(authorized));
+    }
+    private static org.json.JSONObject object(Object value) throws java.io.IOException {
+        if(value==null||value==org.json.JSONObject.NULL)return null;
+        if(!(value instanceof org.json.JSONObject))throw new java.io.IOException("Invalid Ethereum transaction lookup");
+        return(org.json.JSONObject)value;
     }
 }

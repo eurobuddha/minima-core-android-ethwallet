@@ -131,4 +131,15 @@ public class AssetSelectionTest {
         call("refresh",new Class<?>[]{});job();assertEquals("—",field("ethBal").get(activity));
     }
 
+    @Test public void uncertainSendKeepsTheActualHashAndDoesNotClaimRejection()throws Exception {
+        JournalFixture.install();JournalFixture.wire(rpc);
+        when(rpc.getTransactionCount(anyString())).thenReturn(BigInteger.valueOf(4));
+        java.util.concurrent.atomic.AtomicReference<String> hash=new java.util.concurrent.atomic.AtomicReference<>();
+        when(rpc.sendRawTransaction(anyString())).thenAnswer(i->{hash.set(org.web3j.crypto.Hash.sha3((String)i.getArgument(0)));throw new java.io.IOException("fixture lost response");});
+        call("confirmSend",new Class<?>[]{EthNet.Token.class,String.class,String.class},SECOND,TO,"1");job();
+        dialog().getButton(-1).performClick();Shadows.shadowOf(Looper.getMainLooper()).idle();job();
+        assertNotNull(hash.get());assertEquals(hash.get(),((android.content.SharedPreferences)field("prefs").get(activity)).getString("lastTx",null));
+        assertTrue(ShadowToast.getTextOfLatestToast().startsWith("Transaction outcome unknown."));
+        assertTrue(ShadowToast.getTextOfLatestToast().contains(hash.get()));
+    }
 }

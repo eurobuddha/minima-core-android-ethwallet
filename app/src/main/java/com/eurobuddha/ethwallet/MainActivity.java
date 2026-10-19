@@ -92,6 +92,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        com.eurobuddha.minimaapi.ethereum.EthereumTransactions.initialize(getApplicationContext());
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         net = EthNet.MAINNET;
         rpc = new EthRpc(prefs.getString("rpc", net.defaultRpc));
@@ -758,7 +759,11 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
                             prefs.edit().putString("lastTx", tx).apply();
                             onUi(() -> { sentDialog(tx); refresh(); });
                         } catch (Exception e) {
-                            onUi(() -> toast("Send failed: " + e.getMessage()));
+                            if (e instanceof com.eurobuddha.minimaapi.ethereum.EthereumTransactions.Uncertain) {
+                                String hash = ((com.eurobuddha.minimaapi.ethereum.EthereumTransactions.Uncertain)e).hash;
+                                prefs.edit().putString("lastTx", hash).apply();
+                                onUi(() -> toast("Transaction outcome unknown. Check Last transaction before sending again.\n" + hash));
+                            } else onUi(() -> toast("Send failed: " + e.getMessage()));
                         }
                     });
                 })

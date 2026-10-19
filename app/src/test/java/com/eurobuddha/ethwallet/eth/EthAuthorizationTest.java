@@ -16,7 +16,7 @@ public class EthAuthorizationTest {
     private EthRpc rpc;
     @Before public void setup()throws Exception {
         rpc=mock(EthRpc.class);when(rpc.getTransactionCount(anyString())).thenReturn(BigInteger.valueOf(4));
-        when(rpc.sendRawTransaction(anyString())).thenReturn(HASH);
+        JournalFixture.install();JournalFixture.wire(rpc);
     }
     private String send(BooleanSupplier guard)throws Exception {
         return EthTx.send(rpc,FIXTURE,1L,TO,"0x",BigInteger.ONE,BigInteger.valueOf(21000),EthTx.GWEI,guard);
@@ -45,7 +45,7 @@ public class EthAuthorizationTest {
     }
     @Test public void dispatchedReceiptSurvivesSubsequentAccountChange()throws Exception {
         AtomicBoolean allowed=new AtomicBoolean(true);
-        when(rpc.sendRawTransaction(anyString())).thenAnswer(i->{allowed.set(false);return HASH;});
-        assertEquals(HASH,send(allowed::get));
+        when(rpc.sendRawTransaction(anyString())).thenAnswer(i->{allowed.set(false);return JournalFixture.accept(i.getArgument(0));});
+        assertEquals(send(allowed::get),JournalFixture.lastHash);
     }
 }
