@@ -37,18 +37,20 @@ public final class EthWallet {
     private static final java.util.regex.Pattern KEY64 = java.util.regex.Pattern.compile("[0-9a-fA-F]{64}");
 
     private volatile Credentials creds;
+    private long derivationGeneration;
     private volatile boolean imported;   // true if the key was imported rather than seed-derived
 
     public boolean ready() { return creds != null; }
     public boolean isImported() { return imported; }
     public Credentials creds() { return creds; }
-    public String address() { return creds == null ? null : creds.getAddress(); }
+    public String address() { Credentials current = creds; return current == null ? null : current.getAddress(); }
 
     /** The raw ETH private key as 0x + 64 hex (32-byte, zero-padded), or null if no wallet. Used for
      *  recovery / import elsewhere. Works for both seed-derived and imported keys (both populate creds). */
     public String privateKeyHex() {
-        if (creds == null) return null;
-        return org.web3j.utils.Numeric.toHexStringWithPrefixZeroPadded(creds.getEcKeyPair().getPrivateKey(), 64);
+        Credentials current = creds;
+        if (current == null) return null;
+        return org.web3j.utils.Numeric.toHexStringWithPrefixZeroPadded(current.getEcKeyPair().getPrivateKey(), 64);
     }
 
     /**
@@ -68,57 +70,84 @@ public final class EthWallet {
      * The {@link #creds} field is only assigned once both pass, so a rejected key is never briefly live.
      */
     public void deriveFromNode(NodeApi node, final Handler ui, final String expectedAddr, final Cb cb) {
+        final long generation;
+        synchronized (this) { generation = ++derivationGeneration; }
         node.cmd("seedrandom modifier:ethbridge", new NodeApi.Cb() {
-            @Override public void onResult(JSONObject j) {
-                JSONObject r = j.optJSONObject("response");
-                String sr = r == null ? "" : r.optString("seedrandom", "").trim();
-                if (sr.isEmpty()) { post(ui, () -> cb.err("Node returned no seedrandom — is the node write-enabled?")); return; }
-                final String hex = sr.startsWith("0x") || sr.startsWith("0X") ? sr.substring(2) : sr;
-                if (!KEY64.matcher(hex).matches()) {
-                    post(ui, () -> cb.err("Node returned a malformed key (" + hex.length() + " chars, expected 64). Not using it."));
+            @Override public void onResult(JSONObject reply) {
+                final Credentials candidate;
+                try {
+                    if (reply == null || !Boolean.TRUE.equals(reply.opt("status"))) throw new IllegalArgumentException();
+                    JSONObject response = reply.optJSONObject("response");
+                    Object key = response == null ? null : response.opt("seedrandom");
+                    if (!(key instanceof String)) throw new IllegalArgumentException();
+                    candidate = checkedCredentials((String) key);
+                } catch (Exception invalid) {
+                    deliver(generation, ui, () -> cb.err("Node returned an invalid Ethereum key. Not using it."));
                     return;
                 }
-                try {
-                    final Credentials c = Credentials.create("0x" + hex);
-                    if (c.getEcKeyPair().getPrivateKey().signum() == 0) {
-                        post(ui, () -> cb.err("Node returned an all-zero key. Not using it."));
+                deliver(generation, ui, () -> {
+                    String address = candidate.getAddress();
+                    if (expectedAddr != null && !expectedAddr.equalsIgnoreCase(address)) {
+                        cb.addressChanged(expectedAddr, address);
                         return;
                     }
-                    final String a = c.getAddress();
-                    if (expectedAddr != null && !expectedAddr.equalsIgnoreCase(a)) {
-                        post(ui, () -> cb.addressChanged(expectedAddr, a));   // creds deliberately untouched
-                        return;
-                    }
-                    creds = c;
+                    creds = candidate;
                     imported = false;
-                    post(ui, () -> cb.ok(a));
-                } catch (Exception e) {
-                    post(ui, () -> cb.err("Key derivation failed: " + e.getMessage()));
-                }
+                    cb.ok(address);
+                });
             }
-            @Override public void onError(String m) { post(ui, () -> cb.err(m)); }
+            @Override public void onError(String ignored) {
+                deliver(generation, ui, () -> cb.err("Ethereum key derivation failed. Retry when the node is ready."));
+            }
         });
     }
 
-    /** Bring your own key (advanced). Validates by constructing the credentials. */
-    public void importKey(String hexPriv) {
-        creds = Credentials.create(hexPriv.startsWith("0x") ? hexPriv : "0x" + hexPriv);
+    /** Delivery and adoption share one generation check, including queued UI callbacks. */
+    private void deliver(long generation, Handler ui, Runnable callback) {
+        post(ui, () -> {
+            synchronized (EthWallet.this) {
+                if (generation != derivationGeneration) return;
+                ++derivationGeneration; // A request can complete only once.
+                callback.run();
+            }
+        });
+    }
+
+    /** AtomiX's exact width and secp256k1 scalar checks, shared by node and explicit import. */
+    private static Credentials checkedCredentials(String raw) {
+        if (raw == null) throw new IllegalArgumentException("Invalid Ethereum key");
+        String hex = raw.trim();
+        if (hex.startsWith("0x") || hex.startsWith("0X")) hex = hex.substring(2);
+        if (!KEY64.matcher(hex).matches()) throw new IllegalArgumentException("Invalid Ethereum key");
+        BigInteger scalar = new BigInteger(hex, 16);
+        if (scalar.signum() <= 0 || scalar.compareTo(org.web3j.crypto.Sign.CURVE_PARAMS.getN()) >= 0)
+            throw new IllegalArgumentException("Invalid Ethereum key");
+        return Credentials.create("0x" + hex);
+    }
+
+    /** A valid explicit import supersedes every pending node derivation. */
+    public synchronized void importKey(String hexPriv) {
+        Credentials candidate = checkedCredentials(hexPriv);
+        ++derivationGeneration;
+        creds = candidate;
         imported = true;
     }
 
-    public void clear() { creds = null; imported = false; }
+    public synchronized void clear() { ++derivationGeneration; creds = null; imported = false; }
 
     // ---- balances (synchronous; call off the main thread) ----
 
     public BigInteger ethBalanceWei(EthRpc rpc) throws IOException {
-        if (creds == null) return BigInteger.ZERO;
-        return rpc.getBalance(creds.getAddress());
+        Credentials current = creds;
+        if (current == null) return BigInteger.ZERO;
+        return rpc.getBalance(current.getAddress());
     }
 
     /** ERC20 balanceOf(owner) raw (un-scaled by decimals). */
     public BigInteger erc20BalanceRaw(EthRpc rpc, String tokenAddress) throws IOException {
-        if (creds == null) return BigInteger.ZERO;
-        return erc20BalanceRaw(rpc, tokenAddress, creds.getAddress());
+        Credentials current = creds;
+        if (current == null) return BigInteger.ZERO;
+        return erc20BalanceRaw(rpc, tokenAddress, current.getAddress());
     }
 
     public static BigInteger erc20BalanceRaw(EthRpc rpc, String tokenAddress, String owner) throws IOException {
