@@ -25,7 +25,7 @@ to integrated source after changing the NodeApi import to the standalone IPC cla
 Delayed or duplicate node replies cannot replace imported/cleared/newer accounts;
 strict status, width and scalar checks apply before adopting a key. Diagnostic
 errors never include seedrandom contents. Existing address pinning retained.
-22 tests passed; signed offline release and lint passed (0 errors / 69 warnings).
+22 tests passed; signed offline release and lint passed (0 errors / 71 warnings).
 APK version/package and family certificate verified. Candidate now:
 dist/eth-wallet-0.2.8-candidate.apk (checksum beside it).
 No new issue found in the port review. Nonce coordination remains under the main
