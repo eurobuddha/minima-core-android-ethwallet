@@ -88,3 +88,8 @@ SHA256 56f038b5ff7f29ecf2b9de758d013e625f0a60f62d799fcdc2dc154768b051f5
 APK ZIP/DEX and v2 signature verified. RSA4096 family certificate SHA256:
 eca1383c9d27683a281fbe6355356267877dc2dd14d963d7cc289ca0700e517f
 No installation, live transaction or publication. Full parity and device checks remain.
+
+Standalone parity checkpoint 0.2.11/code211 —2026-10-20
+See STANDALONE_PARITY_2026-10-20.txt for the scoped ports, test/review results and
+signed candidate. Bears/Pandamonium untouched; other companions and MDS paused.
+Device verification and rollout remain outstanding.

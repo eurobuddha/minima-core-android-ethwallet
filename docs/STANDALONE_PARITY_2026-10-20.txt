@@ -1,0 +1,49 @@
+Standalone ETH Wallet 0.2.11 / code211 — 2026-10-20
+
+Scope
+Ports the existing Pandamonium encrypted-store opening and imported-source recovery
+behavior into the standalone APK. No Bears/Pandamonium files, builds, documentation,
+branches or remotes were modified. No MDS or other companion work in this pass.
+
+Reused source
+Read-only donor root:
+/Users/eurobuddha/Projects/minima/apks/base/build/multilingual-2026-10-16
+integrated/ethwallet/src/main/java/com/eurobuddha/ethwallet/KeyVault.java
+integrated/ethwallet/src/main/java/com/eurobuddha/ethwallet/MainActivity.java
+integrated/ethwallet/src/test/java/com/eurobuddha/ethwallet/KeyVaultFailureTest.java
+The existing standalone default AndroidX master-key alias and ethwallet_secure
+preference file are retained. No key migration or new dependency. A failed open
+preserves ciphertext/key material; startup retains source=import and explains how
+to retry instead of claiming that the key is gone or opening the source picker.
+The separate IPC SDK, package, private SQLite journal and account guards remain.
+
+Validation
+KeyVaultFailureTest failed against the old production implementation, then passed
+with the donor implementation. Its added construction assertion checks use of the
+standalone default master-key alias. ImportedSourceRecoveryTest reuses the existing
+AssetSelectionTest Activity fixture to cover unavailable storage and unreadable keys.
+71 debug and 71 release tests pass, zero failures/errors/skips. Offline release
+build (including R8/resource shrinking) and lint pass: zero errors, 71 warnings.
+Package/version verified from the actual APK, ZIP/DEX verified, apksigner verifies
+the existing family certificate. All tests use mocks/public synthetic fixtures.
+
+Code Review
+Summary: inspected the changed store/startup logic, its callers, constructor alias,
+tests, build metadata and release configuration. The port preserves existing key
+material and app identity. The new error path keeps the selected source retryable.
+Findings: no unresolved finding in this bounded port.
+Verdict: Approve this parity candidate.
+Limits: temporary access failure can recover on restart; this does not repair a
+permanently lost device master key. This APK's private transaction journal cannot
+coordinate another APK/device sharing its Ethereum key. Broader receipt/reorg,
+manual recovery/history, request identity and retention audit items from earlier
+reports are not claimed complete by this port. Device verification/rollout remain.
+No installation, live transaction or store/GitHub-release publication performed.
+Existing debug overlay, graph data, .gitattributes and old artifacts were not staged.
+
+Signed candidate
+dist/eth-wallet-0.2.11-candidate.apk
+Package com.eurobuddha.ethwallet; version 0.2.11/code211; 8793418 bytes.
+SHA256 1d92ffbcf8e333ba4596954ba5bc209b7d9404574f6f3b688c1b202956a764ee
+Family certificate SHA256:
+eca1383c9d27683a281fbe6355356267877dc2dd14d963d7cc289ca0700e517f

@@ -176,12 +176,11 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
             KeyVault v = vault();
             String key = v.available() ? v.loadKey() : null;
             if (key != null) { wallet.importKey(key); ethAddr = wallet.address(); render(); refresh(); return; }
-            // The stored key is gone — the secure store was reset (restored backup / Keystore change)
-            // or could not be opened at all. Say so plainly instead of silently re-prompting.
-            if (v.wasReset() || !v.available())
-                ethErr = "Secure storage was reset by the device, so the imported key is gone. "
-                       + "Re-import it, or pair with your node.";
-            prefs.edit().remove("source").apply();
+            // Preserve the selected source while storage is unavailable; a later launch can retry.
+            ethErr = "The imported key could not be read. Existing encrypted data has been preserved. "
+                    + "Unlock the device and restart ETH Wallet to retry.";
+            render();
+            return;
         }
         if ("node".equals(src)) { connectNode(); return; }
         sourcePicker();
