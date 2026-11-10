@@ -10,8 +10,8 @@ android {
         applicationId "com.eurobuddha.ethwallet"
         minSdk 28
         targetSdk 35
-        versionCode 213
-        versionName "0.2.13"
+        versionCode 214
+        versionName "0.2.14"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
