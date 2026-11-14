@@ -238,8 +238,8 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         warn.setText("Your node is deriving a DIFFERENT Ethereum address than it did before.");
         warn.setTextColor(Design.RED); warn.setTextSize(14f); warn.setPadding(0, 0, 0, dp(10));
         box.addView(warn);
-        box.addView(kvLine("Was", shortAddr(was)));
-        box.addView(kvLine("Now", shortAddr(now)));
+        box.addView(kvLine("Was", fullAddr(was)));
+        box.addView(kvLine("Now", fullAddr(now)));
         TextView note = new TextView(this);
         note.setText("\nAny funds you already hold are at the OLD address — they do not move. "
                 + "This is expected only if you reset or restored your node with a different seed phrase. "
@@ -314,7 +314,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
                         // store — otherwise the next launch would look for a key that isn't there.
                         if (vault().saveKey(wallet.privateKeyHex())) {
                             prefs.edit().putString("source", "import").apply();
-                            toast("Imported " + shortAddr(wallet.address()));
+                            toast("Imported " + fullAddr(wallet.address()));
                         } else {
                             toast("Secure storage unavailable — key active for this session only");
                         }
@@ -383,8 +383,8 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         LinearLayout addrCard = card();
         TextView at = new TextView(this); at.setText("Your address  ·  tap to receive");
         at.setTextColor(Design.DIM); at.setTextSize(12.5f);
-        TextView av = new TextView(this); av.setText(shortAddr(ethAddr));
-        av.setTextColor(Design.TEXT); av.setTextSize(16f); av.setPadding(0, dp(3), 0, 0);
+        TextView av = new TextView(this); av.setText(fullAddr(ethAddr));
+        av.setTextColor(Design.TEXT); av.setTextSize(14f); av.setPadding(0, dp(3), 0, 0);
         addrCard.addView(at); addrCard.addView(av);
         addrCard.setOnClickListener(v -> receiveDialog());
         col.addView(addrCard);
@@ -402,7 +402,7 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         for (EthNet.Token tk : tokens.tokens()) {
             String bal = tokenBals.containsKey(tokenKey(tk)) ? tokenBals.get(tokenKey(tk)) : "…";
             final EthNet.Token ftk = tk;
-            col.addView(assetRow(tk.symbol, tokenIconUrl(tk.address), shortAddr(tk.address), bal + " " + tk.symbol,
+            col.addView(assetRow(tk.symbol, tokenIconUrl(tk.address), fullAddr(tk.address), bal + " " + tk.symbol,
                     () -> sendDialog(ftk), () -> tokenMenu(ftk)));
         }
 
@@ -1090,10 +1090,8 @@ public class MainActivity extends AppCompatActivity implements NodeApi.PairingLi
         try { return new java.net.URL(rpc.url()).getHost(); } catch (Exception e) { return "the RPC"; }
     }
 
-    private static String shortAddr(String a) {
-        if (a == null) return "—";
-        return a.length() > 14 ? a.substring(0, 8) + "…" + a.substring(a.length() - 6) : a;
-    }
+    /** Identifiers are shown IN FULL (owner rule: a shortened address cannot be copied, checked or pasted anywhere). */
+    private static String fullAddr(String a) { return a == null ? "—" : a; }
     private static String cleanAddr(String s) {
         if (s == null) return "";
         s = s.trim();

@@ -10,8 +10,9 @@ android {
         applicationId "com.eurobuddha.ethwallet"
         minSdk 28
         targetSdk 35
-        versionCode 214
-        versionName "0.2.14"
+        // 0.2.15: addresses always shown in full (was 8…6 truncation: key-mismatch was/now, import toast, address card, tokens).
+        versionCode 215
+        versionName "0.2.15"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
